@@ -1,0 +1,57 @@
+name: voice_journal
+description: Nhật ký giọng nói — ứng dụng thu thập tín hiệu tiếng nói cho nghiên cứu đánh giá trầm cảm.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Ghi âm WAV 16kHz mono — chuẩn dữ liệu chung của dự án (WP1/WP2/WP3)
+  record: ^5.1.2
+
+  # Phát lại bản ghi trong màn Lịch sử
+  just_audio: ^0.9.40
+
+  # Đường dẫn lưu file âm thanh trên thiết bị
+  path_provider: ^2.1.4
+
+  # Lưu draft phiên đánh giá + metadata (bản demo; production nên dùng sqflite/Isar)
+  shared_preferences: ^2.3.2
+
+  # Xin quyền micro
+  permission_handler: ^11.3.1
+
+  # Định dạng ngày tháng tiếng Việt
+  intl: ^0.20.3
+
+  # Gọi backend JSON API (khe cắm model — WP2 ↔ WP3)
+  http: ^1.2.2
+
+  # Token đăng nhập: Keychain trên iOS, EncryptedSharedPreferences trên Android.
+  # Không dùng shared_preferences cho thông tin xác thực dữ liệu sức khoẻ.
+  flutter_secure_storage: ^9.2.2
+
+  # Phát hiện có mạng trở lại để chạy lại hàng đợi tải lên
+  connectivity_plus: ^6.1.0
+
+  # Sinh id cho phiên ghi âm
+  uuid: ^4.5.1
+
+
+dependency_overrides:
+  record_linux: ^1.2.0
+  record_platform_interface: ^1.6.0
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
