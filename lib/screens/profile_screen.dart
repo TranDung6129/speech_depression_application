@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../services/reminder_service.dart';
 import '../services/storage_service.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_theme.dart';
@@ -17,7 +18,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   int _reminderHour = 20;
   int _reminderMinute = 0;
-  int _intervalDays = 7;
+  bool _reminderOn = true;
 
   @override
   void initState() {
@@ -27,13 +28,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     final (h, m) = await _storage.reminderTime();
-    final days = await _storage.assessmentIntervalDays();
+    final on = await ReminderService.instance.isEnabled();
     if (!mounted) return;
     setState(() {
       _reminderHour = h;
       _reminderMinute = m;
-      _intervalDays = days;
+      _reminderOn = on;
     });
+  }
+
+  Future<void> _toggleReminder(bool on) async {
+    await ReminderService.instance
+        .setEnabled(on, hour: _reminderHour, minute: _reminderMinute);
+    if (mounted) setState(() => _reminderOn = on);
   }
 
   Future<void> _pickReminder() async {
@@ -43,57 +50,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (picked == null) return;
     await _storage.setReminderTime(picked.hour, picked.minute);
+    await ReminderService.instance
+        .schedule(hour: picked.hour, minute: picked.minute, askPermission: true);
     if (!mounted) return;
     setState(() {
       _reminderHour = picked.hour;
       _reminderMinute = picked.minute;
     });
-  }
-
-  Future<void> _pickInterval() async {
-    final picked = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('How often should we remind you?',
-                style: TextStyle(fontSize: 16)),
-            SizedBox(height: 4),
-            Text('You can still do it whenever you want.',
-                style: TextStyle(
-                    fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 16),
-            ...[
-              (3, 'Every 3 days'),
-              (7, 'Every week'),
-              (14, 'Every 2 weeks'),
-              (0, 'No reminder — I will check in myself'),
-            ].map((opt) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(opt.$2, style: const TextStyle(fontSize: 14)),
-                  trailing: _intervalDays == opt.$1
-                      ? const Icon(Icons.check_rounded,
-                          size: 18, color: AppColors.greenDeep)
-                      : null,
-                  onTap: () => Navigator.of(context).pop(opt.$1),
-                )),
-          ],
-        ),
-      ),
-    );
-
-    if (picked == null) return;
-    await _storage.setAssessmentIntervalDays(picked);
-    if (!mounted) return;
-    setState(() => _intervalDays = picked);
   }
 
   Future<void> _confirmWipe() async {
@@ -105,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Delete all recordings?',
             style: TextStyle(fontSize: 17)),
         content: const Text(
-          'All recordings and assessments stored on this device will be deleted. This action cannot be undone.',
+          'All sessions stored on this device, including any not yet sent, will be deleted. This action cannot be undone.',
           style: TextStyle(fontSize: 13),
         ),
         actions: [
@@ -124,18 +87,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed != true) return;
     await _storage.wipeAll();
+    await UploadQueue.instance.clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('All recordings have been deleted.')),
     );
   }
-
-  String get _intervalLabel => switch (_intervalDays) {
-        3 => 'Every 3 days',
-        7 => 'Every week',
-        14 => 'Every 2 weeks',
-        _ => 'No reminder',
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -176,16 +133,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _sectionCard([
             _row(
               icon: Icons.notifications_none_rounded,
-              title: 'Journal reminder',
-              subtitle: 'Daily · $time',
-              onTap: _pickReminder,
+              title: 'Daily session reminder',
+              subtitle: _reminderOn ? 'Every day · $time' : 'Off',
+              onTap: _reminderOn ? _pickReminder : null,
             ),
-            _divider(),
-            _row(
-              icon: Icons.assignment_outlined,
-              title: 'Assessment frequency',
-              subtitle: 'You choose · $_intervalLabel',
-              onTap: _pickInterval,
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+              title: const Text('Send a notification', style: TextStyle(fontSize: 13)),
+              value: _reminderOn,
+              onChanged: _toggleReminder,
             ),
             _divider(),
             _row(

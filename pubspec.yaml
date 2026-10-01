@@ -1,7 +1,7 @@
 name: voice_journal
 description: Nhật ký giọng nói — ứng dụng thu thập tín hiệu tiếng nói cho nghiên cứu đánh giá trầm cảm.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -45,6 +45,9 @@ dependencies:
 
   # Tính checksum SHA-256 trước khi xoá file ghi âm đã upload
   crypto: ^3.0.7
+  flutter_local_notifications: ^22.3.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
 
 
 dependency_overrides:

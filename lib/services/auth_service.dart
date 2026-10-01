@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import 'reminder_service.dart';
 import 'storage_service.dart';
 import 'upload_queue.dart';
 
@@ -23,6 +24,7 @@ class AuthService extends ChangeNotifier {
   String? _role;
   bool _profileLoaded = false;
 
+  String? _userId;
   String? _displayName;
   String? _sex;
   int? _birthYear;
@@ -34,6 +36,9 @@ class AuthService extends ChangeNotifier {
   bool _profileComplete = false;
 
   String? get token => _token;
+
+  /// `user_id` ghi vào metadata mỗi file (mục 5.1).
+  String? get userId => _userId;
   bool get isSignedIn => _token != null;
   bool get isProfileLoaded => _profileLoaded;
   String get displayName =>
@@ -87,7 +92,9 @@ class AuthService extends ChangeNotifier {
     await _storage.deleteAll();
     await StorageService.instance.wipeAll();
     await UploadQueue.instance.clearAll();
+    await ReminderService.instance.cancel();
     _profileLoaded = false;
+    _userId = null;
     _displayName = null;
     _sex = null;
     _birthYear = null;
@@ -135,6 +142,7 @@ class AuthService extends ChangeNotifier {
   }
 
   void _applyProfile(Map<String, dynamic> body) {
+    _userId = body['id'] as String?;
     _displayName = body['display_name'] as String?;
     _sex = body['sex'] as String?;
     _birthYear = body['birth_year'] as int?;
@@ -406,20 +414,21 @@ class AuthService extends ChangeNotifier {
     }
     return 'Something went wrong. Please try again later.';
   }
-  Future<Map<String, dynamic>?> fetchSummary() async {
+  /// Phiên đã nhận trên máy chủ, mới nhất trước. Chỉ có số liệu về việc thu
+  /// và cờ chất lượng — schema bệnh nhân không có trường điểm (mục 11).
+  Future<List<Map<String, dynamic>>?> fetchSessions() async {
     if (_token == null) return null;
     try {
-      final now = DateTime.now();
-      final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final response = await http
           .get(
-            Uri.parse('${AppConfig.apiBaseUrl}/v1/recordings/summary?today=$todayStr'),
+            Uri.parse('${AppConfig.apiBaseUrl}/v1/sessions'),
             headers: _authHeaders,
           )
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+        return (jsonDecode(response.body) as List<dynamic>)
+            .cast<Map<String, dynamic>>();
       }
     } catch (_) {}
     return null;

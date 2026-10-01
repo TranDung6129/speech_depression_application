@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../models/models.dart';
 import '../main.dart';
+import '../models/models.dart';
 import '../services/auth_service.dart';
+import '../services/reminder_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
-import 'assessment_screen.dart';
 import 'history_screen.dart';
-import 'journal_screen.dart';
 import 'profile_screen.dart';
+import 'session_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -61,7 +61,7 @@ class _HomeShellState extends State<HomeShell> {
             title: 'Chat',
             body:
                 'The chat experience is still being built with our care team.\n'
-                'For now, you can use the voice journal in the Home tab.',
+                'For now, you can record your daily session in the Home tab.',
           ),
           _ComingSoonTab(
             icon: Icons.spa_outlined,
@@ -109,14 +109,19 @@ class _HomeTab extends StatefulWidget {
   State<_HomeTab> createState() => _HomeTabState();
 }
 
+/// Màn hình chính của bệnh nhân (WP2 mục 11).
+///
+/// Bệnh nhân thấy: đã thu bao nhiêu phiên, chất lượng thu của phiên vừa rồi
+/// kèm hướng dẫn cải thiện, và đường dẫn tới hỗ trợ. Bệnh nhân KHÔNG BAO GIỜ
+/// thấy điểm, nhãn hay mức rủi ro, và không có từ ngữ chẩn đoán nào ở đây.
 class _HomeTabState extends State<_HomeTab> {
   final _storage = StorageService.instance;
 
   Set<DateTime> _recordedDays = {};
-  AssessmentSession? _draft;
-  int _streak = 0;
-  int _monthCount = 0;
-  bool _journaledToday = false;
+  int _sessionCount = 0;
+  bool _doneToday = false;
+  List<String> _lastFlags = const [];
+  bool _hasLast = false;
 
   @override
   void initState() {
@@ -125,90 +130,54 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Future<void> _load() async {
-    final days = await _storage.recordedDays();
-    final draft = await _storage.loadDraft();
+    final local = await _storage.loadSessions();
+    final server = await AuthService.instance.fetchSessions();
+    if (!mounted) return;
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    
-    final summary = await AuthService.instance.fetchSummary();
-    if (!mounted) return;
 
-    if (summary != null) {
-      setState(() {
-        _recordedDays = days;
-        _draft = draft;
-        _streak = summary['current_streak_days'] as int? ?? 0;
-        _journaledToday = summary['recorded_today'] as bool? ?? false;
-        _monthCount = summary['journal_count'] as int? ?? 0;
-      });
-    } else {
-      final entries = await _storage.loadEntries();
-      var streak = 0;
-      var cursor = days.contains(today)
-          ? today
-          : today.subtract(const Duration(days: 1));
-      while (days.contains(cursor)) {
-        streak++;
-        cursor = cursor.subtract(const Duration(days: 1));
-      }
-
-      setState(() {
-        _recordedDays = days;
-        _draft = draft;
-        _streak = streak;
-        _journaledToday = days.contains(today);
-        _monthCount = entries
-            .where((e) =>
-                e.recordedAt.year == now.year && e.recordedAt.month == now.month)
-            .length;
-      });
+    // Máy chủ là nguồn đầy đủ nhất (kể cả phiên thu trên máy cũ); phiên chưa
+    // tải lên thì chỉ có ở máy này. Gộp theo session_id.
+    final byId = <String, (DateTime, List<String>)>{};
+    for (final s in server ?? const <Map<String, dynamic>>[]) {
+      byId[s['session_id'] as String] = (
+        DateTime.parse('${s['timestamp_utc']}Z').toLocal(),
+        (s['quality_flags'] as List<dynamic>).cast<String>(),
+      );
     }
+    for (final s in local) {
+      byId.putIfAbsent(s.id, () => (s.recordedAt, s.qualityFlags));
+    }
+    final all = byId.values.toList()..sort((a, b) => b.$1.compareTo(a.$1));
+    final days = all
+        .map((s) => DateTime(s.$1.year, s.$1.month, s.$1.day))
+        .toSet();
+
+    setState(() {
+      _recordedDays = days;
+      _sessionCount = all.length;
+      _doneToday = days.contains(today);
+      _hasLast = all.isNotEmpty;
+      _lastFlags = all.isEmpty ? const [] : all.first.$2;
+    });
+
+    // Đặt lại lịch nhắc mỗi lần mở màn hình chính: đã thu hôm nay thì lần
+    // nhắc kế tiếp là ngày mai.
+    final (hour, minute) = await _storage.reminderTime();
+    await ReminderService.instance.schedule(
+      hour: hour,
+      minute: minute,
+      doneToday: days.contains(today),
+      askPermission: true,
+    );
   }
 
-  Future<void> _openJournal() async {
+  Future<void> _openSession() async {
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const JournalScreen()),
+      MaterialPageRoute(builder: (_) => const SessionScreen()),
     );
-    if (saved == true) _load();
-  }
-
-  Future<void> _openAssessment() async {
-    // Có draft dở thì hỏi trước, không tự động nhảy vào giữa chừng.
-    if (_draft != null && !_draft!.isComplete) {
-      final choice = await showModalBottomSheet<_DraftChoice>(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _ResumeDraftSheet(draft: _draft!),
-      );
-
-      if (choice == null) return;
-
-      if (choice == _DraftChoice.startNew) {
-        // Draft cũ không bị xoá — chuyển sang trạng thái abandoned và giữ lại.
-        // Các câu đã trả lời vẫn là mẫu giọng hợp lệ, đáng giữ cho phân tích.
-        await _storage.archiveDraftAsAbandoned();
-        if (!mounted) return;
-        final done = await Navigator.of(context).push<bool>(
-          MaterialPageRoute(builder: (_) => const AssessmentScreen()),
-        );
-        if (done != null) _load();
-        return;
-      }
-
-      if (!mounted) return;
-      final done = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-            builder: (_) => AssessmentScreen(resumeSession: _draft)),
-      );
-      if (done != null) _load();
-      return;
-    }
-
-    final done = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const AssessmentScreen()),
-    );
-    if (done != null) _load();
+    if (saved != null) _load();
   }
 
   @override
@@ -222,19 +191,23 @@ class _HomeTabState extends State<_HomeTab> {
             _header(),
             const SizedBox(height: 18),
             Text(
-              _journaledToday
-                  ? 'You already logged today'
-                  : 'How are you feeling today?',
+              _doneToday
+                  ? 'You have recorded today'
+                  : 'Ready for today\'s session?',
               style: const TextStyle(fontSize: 20, height: 1.35),
             ),
             const SizedBox(height: 16),
-            _journalCard(),
+            _sessionCard(),
             const SizedBox(height: 12),
-            _assessmentCard(),
-            const SizedBox(height: 12),
+            if (_hasLast) ...[
+              _lastQualityCard(),
+              const SizedBox(height: 12),
+            ],
             _statsRow(),
             const SizedBox(height: 12),
             _weekCard(),
+            const SizedBox(height: 12),
+            _supportTile(),
           ],
         ),
       ),
@@ -259,20 +232,21 @@ class _HomeTabState extends State<_HomeTab> {
             color: AppColors.greenTint,
           ),
           alignment: Alignment.center,
-          child: const Text('MD',
-              style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.greenDeep,
-                  fontWeight: FontWeight.w500)),
+          child: const Icon(Icons.person_outline_rounded,
+              size: 18, color: AppColors.greenDeep),
         ),
-        SizedBox(width: 11),
+        const SizedBox(width: 11),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(greeting,
                   style: TextStyle(
-                      fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                      fontSize: 11,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.7))),
               AnimatedBuilder(
                 animation: AuthService.instance,
                 builder: (context, _) {
@@ -285,7 +259,7 @@ class _HomeTabState extends State<_HomeTab> {
         ),
         IconButton(
           onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => HistoryScreen()),
+            MaterialPageRoute(builder: (_) => const HistoryScreen()),
           ),
           icon: Icon(Icons.calendar_today_outlined,
               size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -299,9 +273,9 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _journalCard() {
+  Widget _sessionCard() {
     return GestureDetector(
-      onTap: _openJournal,
+      onTap: _openSession,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 18),
         decoration: BoxDecoration(
@@ -318,18 +292,18 @@ class _HomeTabState extends State<_HomeTab> {
                 color: Theme.of(context).colorScheme.surface,
               ),
               child: Icon(
-                _journaledToday ? Icons.check_rounded : Icons.mic_none_rounded,
+                _doneToday ? Icons.check_rounded : Icons.mic_none_rounded,
                 size: 23,
                 color: AppColors.greenDeep,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              _journaledToday ? 'Add another entry' : 'Today\'s journal',
+              _doneToday ? 'Record another session' : 'Today\'s session',
               style: const TextStyle(fontSize: 14, color: AppColors.greenDeep),
             ),
             const SizedBox(height: 3),
-            const Text('About a minute',
+            const Text('Three short steps · about two minutes',
                 style: TextStyle(fontSize: 11, color: Color(0xFF085041))),
           ],
         ),
@@ -337,77 +311,70 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _assessmentCard() {
-    final hasDraft = _draft != null && !_draft!.isComplete;
-
-    return GestureDetector(
-      onTap: _openAssessment,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 15),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceVariant,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: hasDraft ? AppColors.amberTint : AppColors.blueTint,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Icon(
-                hasDraft ? Icons.bookmark_outline_rounded : Icons.assignment_outlined,
-                size: 17,
-                color: hasDraft
-                    ? const Color(0xFF854F0B)
-                    : AppColors.blueDeep,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Deep check-in',
-                      style: TextStyle(fontSize: 13)),
-                  Text(
-                    hasDraft
-                        ? 'In progress ${_draft!.answeredCount}/${AssessmentQuestion.total} questions'
-                        : 'Four questions, about five minutes',
-                    style: TextStyle(
-                        fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right,
-                size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
-          ],
-        ),
+  /// Chất lượng thu của phiên gần nhất. Chỉ nói về điều kiện thu.
+  Widget _lastQualityCard() {
+    final tips = _lastFlags.map(guidanceFor).whereType<String>().toList();
+    final good = tips.isEmpty;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(good ? Icons.graphic_eq_rounded : Icons.tips_and_updates_outlined,
+                  size: 18,
+                  color: good ? AppColors.greenDeep : AppColors.amberInk),
+              const SizedBox(width: 8),
+              const Text('Your last recording', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (good)
+            Text('Recording quality looked good.',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant))
+          else
+            ...tips.map((t) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(t,
+                      style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                )),
+        ],
       ),
     );
   }
 
   Widget _statsRow() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final week = List.generate(7, (i) => today.subtract(Duration(days: i)));
+    final daysThisWeek = week.where(_recordedDays.contains).length;
     return Row(
       children: [
         Expanded(
           child: _statTile(
-            icon: Icons.local_fire_department_outlined,
-            iconColor: const Color(0xFFD85A30),
-            value: '$_streak days',
-            label: 'in a row',
+            icon: Icons.mic_none_rounded,
+            iconColor: const Color(0xFF185FA5),
+            value: '$_sessionCount',
+            label: 'sessions recorded',
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: _statTile(
-            icon: Icons.show_chart_rounded,
-            iconColor: const Color(0xFF185FA5),
-            value: '$_monthCount',
-            label: 'total recordings',
+            icon: Icons.event_available_outlined,
+            iconColor: AppColors.greenDeep,
+            value: '$daysThisWeek / 7',
+            label: 'days in the last week',
           ),
         ),
       ],
@@ -423,19 +390,23 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 18, color: iconColor),
-          SizedBox(height: 8),
-          Text(value, style: TextStyle(fontSize: 18)),
-          SizedBox(height: 2),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 2),
           Text(label,
               style: TextStyle(
-                  fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                  fontSize: 11,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withValues(alpha: 0.7))),
         ],
       ),
     );
@@ -445,7 +416,7 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -454,13 +425,17 @@ class _HomeTabState extends State<_HomeTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('This week', style: TextStyle(fontSize: 13)),
+              const Text('This week', style: TextStyle(fontSize: 13)),
               GestureDetector(
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => HistoryScreen()),
+                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
                 ),
                 child: Icon(Icons.chevron_right,
-                    size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
+                    size: 16,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.7)),
               ),
             ],
           ),
@@ -470,99 +445,63 @@ class _HomeTabState extends State<_HomeTab> {
       ),
     );
   }
+
+  Widget _supportTile() {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      tileColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      leading: const Icon(Icons.support_agent_outlined),
+      title: const Text('Need support?', style: TextStyle(fontSize: 13)),
+      subtitle: const Text('Ways to reach a person', style: TextStyle(fontSize: 11)),
+      trailing: const Icon(Icons.chevron_right, size: 18),
+      onTap: () => showSupportSheet(context),
+    );
+  }
 }
 
-/// ---------------------------------------------------------------------------
-
-enum _DraftChoice { resume, startNew }
-
-/// Prompt before entering an unfinished session.
-class _ResumeDraftSheet extends StatelessWidget {
-  const _ResumeDraftSheet({required this.draft});
-
-  final AssessmentSession draft;
-
-  @override
-  Widget build(BuildContext context) {
-    final days = DateTime.now().difference(draft.lastTouchedAt).inDays;
-    final ago = days == 0
-        ? 'today'
-        : days == 1
-            ? 'yesterday'
-            : '$days days ago';
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
+/// Đường dẫn tới hỗ trợ (mục 11). App này không thay thế chăm sóc y tế.
+void showSupportSheet(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (context) => Container(
+      padding: const EdgeInsets.fromLTRB(22, 18, 22, 30),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.amberTint,
-            ),
-            child: const Icon(Icons.bookmark_outline_rounded,
-                color: Color(0xFF854F0B), size: 21),
+          const Text('Support', style: TextStyle(fontSize: 17)),
+          const SizedBox(height: 12),
+          const Text(
+            'This app records your voice for a research study. It does not '
+            'give results and it is not a replacement for care.',
+            style: TextStyle(fontSize: 13, height: 1.5),
           ),
-          SizedBox(height: 16),
-          Text('You have an unfinished assessment',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16)),
-          SizedBox(height: 6),
-          Text(
-            'Answered ${draft.answeredCount}/${AssessmentQuestion.total} questions · $ago',
-            style: TextStyle(
-                fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(height: 12),
+          const Text(
+            '• If you want to talk to someone, contact your clinic or the '
+            'study team.\n'
+            '• If you are in danger or need urgent help, call 115 or go to '
+            'the nearest emergency department.',
+            style: TextStyle(fontSize: 13, height: 1.6),
           ),
-          const SizedBox(height: 22),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_DraftChoice.resume),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.blueDeep,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(AppRadius.structuredButton),
-                ),
-                elevation: 0,
-              ),
-              child: Text('Continue from question ${draft.answeredCount + 1}'),
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_DraftChoice.startNew),
-              style: OutlinedButton.styleFrom(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                side: BorderSide(color: AppColors.borderStrong),
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(AppRadius.structuredButton),
-                ),
-              ),
-              child: Text('Start a new assessment',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
             ),
           ),
-          SizedBox(height: 14),
-          Text('Your answered questions are still saved',
-              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Tab for features not built yet.

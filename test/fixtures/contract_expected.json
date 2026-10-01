@@ -1,0 +1,22 @@
+{
+  "A": {
+    "duration_total_sec": 1.0,
+    "speech_sec": 0.0,
+    "speech_ratio": 0.0,
+    "noise_floor_db": -54.0227993275274,
+    "speech_db": -53.459190659830014,
+    "peak_db": -41.81136596657302,
+    "snr_db": 0.5636086676973875,
+    "clipping_ratio": 0.0
+  },
+  "B": {
+    "duration_total_sec": 2.0,
+    "speech_sec": 1.04,
+    "speech_ratio": 0.52,
+    "noise_floor_db": -54.0227993275274,
+    "speech_db": -10.860547830652363,
+    "peak_db": -0.00026507636037961915,
+    "snr_db": 43.16225149687504,
+    "clipping_ratio": 0.0003125
+  }
+}

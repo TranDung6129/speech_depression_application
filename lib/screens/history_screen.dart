@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:just_audio/just_audio.dart';
 
 import '../models/models.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
 
-/// History screen.
-/// The important rule: the monthly view shows only whether a day has a recording.
-/// It never colors by emotion and never displays model scores.
+/// Lịch sử phiên thu trên máy này.
+///
+/// Lịch chỉ cho biết ngày nào đã thu. Không tô màu theo bất kỳ số đo nào,
+/// không bao giờ hiển thị điểm (WP2 mục 11). Không có nút nghe lại để thu đè:
+/// bản thu đã lưu là bản cuối cùng (mục 6).
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -19,13 +20,10 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final _storage = StorageService.instance;
-  final _player = AudioPlayer();
 
-  List<JournalEntry> _entries = [];
-  List<AssessmentSession> _sessions = [];
+  List<LocalSession> _sessions = [];
   Set<DateTime> _recordedDays = {};
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
-  String? _playingId;
 
   @override
   void initState() {
@@ -33,98 +31,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
-    final entries = await _storage.loadEntries();
     final sessions = await _storage.loadSessions();
     final days = await _storage.recordedDays();
     if (!mounted) return;
     setState(() {
-      _entries = entries;
       _sessions = sessions;
       _recordedDays = days;
     });
   }
 
-  Future<void> _togglePlay(JournalEntry entry) async {
-    if (_playingId == entry.id) {
-      await _player.stop();
-      setState(() => _playingId = null);
-      return;
-    }
-
-    try {
-      await _player.setFilePath(entry.audioPath);
-      await _player.play();
-      setState(() => _playingId = entry.id);
-      _player.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed && mounted) {
-          setState(() => _playingId = null);
-        }
-      });
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This recording could not be opened.')),
-      );
-    }
-  }
-
   void _showDay(DateTime day) {
-    final dayEntries = _entries
-        .where((e) =>
-            e.recordedAt.year == day.year &&
-            e.recordedAt.month == day.month &&
-            e.recordedAt.day == day.day)
+    final daySessions = _sessions
+        .where((s) =>
+            s.recordedAt.year == day.year &&
+            s.recordedAt.month == day.month &&
+            s.recordedAt.day == day.day)
         .toList();
-
-    if (dayEntries.isEmpty) return;
+    if (daySessions.isEmpty) return;
 
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 30),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(DateFormat("d MMMM y", 'en').format(day),
+            Text(DateFormat('d MMMM y', 'en').format(day),
                 style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 14),
-            ...dayEntries.map((e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
-                    children: [
-                      Icon(
-                        e.selfTag?.icon ?? Icons.mic_none_rounded,
-                        size: 17,
-                        color: AppColors.greenDeep,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          e.selfTag?.label ?? 'No label yet',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                      ),
-                      Text(
-                        DateFormat('HH:mm').format(e.recordedAt),
-                        style: TextStyle(
-                            fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
-                      ),
-                    ],
-                  ),
-                )),
+            ...daySessions.map(_sessionTile),
           ],
         ),
       ),
@@ -138,20 +80,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
         backgroundColor: AppColors.canvas,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Your journal', style: TextStyle(fontSize: 17)),
+        title: const Text('Your sessions', style: TextStyle(fontSize: 17)),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: [
           _monthCard(),
           const SizedBox(height: 18),
-          if (_entries.isEmpty && _sessions.isEmpty)
+          if (_sessions.isEmpty)
             _emptyState()
           else ...[
             const Text('Recent', style: TextStyle(fontSize: 14)),
             const SizedBox(height: 10),
-            ..._entries.take(10).map(_entryTile),
-            ..._sessions.take(5).map(_sessionTile),
+            ..._sessions.take(20).map(_sessionTile),
           ],
         ],
       ),
@@ -199,7 +140,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           SizedBox(height: 10),
           Text(
-            'Dark days indicate entries you have recorded. Tap to review.',
+            'Dark days are days with a recorded session. Tap to see them.',
             style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           ),
         ],
@@ -207,73 +148,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  Widget _entryTile(JournalEntry entry) {
-    final playing = _playingId == entry.id;
+  Widget _sessionTile(LocalSession session) {
+    final tips = session.qualityFlags.map(guidanceFor).whereType<String>();
+    final quality = tips.isEmpty ? 'Good recording' : 'See tips for next time';
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: AppColors.greenTint,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(entry.selfTag?.icon ?? Icons.mic_none_rounded,
-                size: 15, color: AppColors.greenDeep),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Journal · ${DateFormat("d MMMM", 'en').format(entry.recordedAt)}',
-                  style: TextStyle(fontSize: 12),
-                ),
-                Text(
-                  '${entry.duration.inSeconds} seconds'
-                  '${entry.selfTag != null ? ' · ${entry.selfTag!.label}' : ''}',
-                  style: TextStyle(
-                      fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: () => _togglePlay(entry),
-            icon: Icon(
-              playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
-              size: 18,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sessionTile(AssessmentSession session) {
-    final label = switch (session.status) {
-      SessionStatus.completed =>
-        'Completed ${session.answeredCount}/${AssessmentQuestion.total}',
-      SessionStatus.abandoned =>
-        'Stopped at ${session.answeredCount}/${AssessmentQuestion.total}',
-      SessionStatus.draft => 'In progress',
-    };
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -285,7 +169,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               color: AppColors.blueTint,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.assignment_outlined,
+            child: const Icon(Icons.mic_none_rounded,
                 size: 15, color: AppColors.blueDeep),
           ),
           const SizedBox(width: 11),
@@ -294,14 +178,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Assessment · ${DateFormat("d MMMM", 'en').format(session.startedAt)}',
-                  style: TextStyle(fontSize: 12),
+                  'Session · ${DateFormat('d MMMM, HH:mm', 'en').format(session.recordedAt)}',
+                  style: const TextStyle(fontSize: 12),
                 ),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                Text(
+                  '${session.speechSec.round()} s of speaking · $quality',
+                  style: TextStyle(
+                      fontSize: 10, color: muted.withValues(alpha: 0.7)),
+                ),
               ],
             ),
+          ),
+          Icon(
+            session.uploaded
+                ? Icons.cloud_done_outlined
+                : Icons.cloud_upload_outlined,
+            size: 16,
+            color: muted.withValues(alpha: 0.7),
           ),
         ],
       ),
@@ -316,11 +209,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
           Icon(Icons.mic_none_rounded,
               size: 34, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           SizedBox(height: 14),
-          Text('No recordings yet',
+          Text('No sessions yet',
               style: TextStyle(fontSize: 15)),
           SizedBox(height: 6),
           Text(
-            'Record your first journal entry from the home screen. It only takes about a minute.',
+            'Record your first session from the home screen. It takes about two minutes.',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 12, height: 1.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
