@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../services/reminder_service.dart';
 import '../services/storage_service.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_theme.dart';
@@ -17,6 +18,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   int _reminderHour = 20;
   int _reminderMinute = 0;
+  bool _reminderOn = true;
 
   @override
   void initState() {
@@ -26,11 +28,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     final (h, m) = await _storage.reminderTime();
+    final on = await ReminderService.instance.isEnabled();
     if (!mounted) return;
     setState(() {
       _reminderHour = h;
       _reminderMinute = m;
+      _reminderOn = on;
     });
+  }
+
+  Future<void> _toggleReminder(bool on) async {
+    await ReminderService.instance
+        .setEnabled(on, hour: _reminderHour, minute: _reminderMinute);
+    if (mounted) setState(() => _reminderOn = on);
   }
 
   Future<void> _pickReminder() async {
@@ -40,6 +50,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (picked == null) return;
     await _storage.setReminderTime(picked.hour, picked.minute);
+    await ReminderService.instance
+        .schedule(hour: picked.hour, minute: picked.minute, askPermission: true);
     if (!mounted) return;
     setState(() {
       _reminderHour = picked.hour;
@@ -122,8 +134,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _row(
               icon: Icons.notifications_none_rounded,
               title: 'Daily session reminder',
-              subtitle: 'Daily · $time',
-              onTap: _pickReminder,
+              subtitle: _reminderOn ? 'Every day · $time' : 'Off',
+              onTap: _reminderOn ? _pickReminder : null,
+            ),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+              title: const Text('Send a notification', style: TextStyle(fontSize: 13)),
+              value: _reminderOn,
+              onChanged: _toggleReminder,
             ),
             _divider(),
             _row(

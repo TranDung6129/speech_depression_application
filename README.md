@@ -162,6 +162,12 @@ có hai trạng thái đã thu / chưa thu.
 cứng. `recording_context` (home / clinic / lab) do người dùng chọn đầu phiên,
 nhớ lựa chọn lần trước.
 
+**Nhắc mỗi ngày một phiên (mục 3).** `reminder_service.dart` đặt một thông
+báo lặp mỗi ngày đúng giờ đã chọn trong Profile (mặc định 20:00, tắt được).
+Màn hình chính đặt lại lịch mỗi lần mở: đã thu hôm nay thì lần nhắc kế tiếp là
+ngày mai. Chế độ không chính xác (`inexactAllowWhileIdle`) nên không cần quyền
+báo thức chính xác. Nội dung thông báo không có từ ngữ chẩn đoán.
+
 **Hàng đợi tải lên, không gọi API trực tiếp.** `UploadQueue` lưu việc chờ
 xuống đĩa, tồn tại qua lần khởi động app, tự chạy lại khi có mạng, và **chỉ
 xoá ba file cục bộ sau khi checksum từng phần khớp với máy chủ**. Gửi lại cùng
@@ -175,7 +181,9 @@ Ba nhánh xử lý lỗi khác nhau, không gộp làm một:
 ## Còn thiếu để lên bản thật
 
 - Onboarding (hiện vào thẳng màn đăng nhập)
-- Lịch nhắc thật (`flutter_local_notifications`) — mặc định mỗi ngày một phiên, cùng khung giờ (mục 3)
+- Chưa build thử được APK sau khi thêm `flutter_local_notifications` (desugaring
+  trong `build.gradle.kts`, receiver trong `AndroidManifest.xml`): môi trường
+  phát triển hiện tại không có Android SDK
 - Handler iOS cho kênh `voice_journal/audio` (xem trên) khi tạo thư mục `ios/`
 - Chuyển lưu trữ từ `shared_preferences` sang sqflite/Isar
 - Mã hoá file âm thanh trên thiết bị

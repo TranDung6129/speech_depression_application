@@ -7,6 +7,7 @@ import 'screens/profile_completion_screen.dart';
 import 'screens/consent_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/auth_service.dart';
+import 'services/reminder_service.dart';
 import 'services/upload_queue.dart';
 import 'theme/app_theme.dart';
 
@@ -22,6 +23,9 @@ Future<void> main() async {
   // Restart the upload queue: any recordings left pending from a previous session
   // will be sent as soon as the network is available.
   await UploadQueue.instance.start();
+
+  // Thông báo nhắc phiên hằng ngày; lịch được đặt ở màn hình chính.
+  await ReminderService.instance.init();
 
   runApp(const VoiceJournalApp());
 }

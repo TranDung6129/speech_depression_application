@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import 'reminder_service.dart';
 import 'storage_service.dart';
 import 'upload_queue.dart';
 
@@ -91,6 +92,7 @@ class AuthService extends ChangeNotifier {
     await _storage.deleteAll();
     await StorageService.instance.wipeAll();
     await UploadQueue.instance.clearAll();
+    await ReminderService.instance.cancel();
     _profileLoaded = false;
     _userId = null;
     _displayName = null;

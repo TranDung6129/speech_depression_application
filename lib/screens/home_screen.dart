@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
+import '../services/reminder_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
@@ -160,6 +161,16 @@ class _HomeTabState extends State<_HomeTab> {
       _hasLast = all.isNotEmpty;
       _lastFlags = all.isEmpty ? const [] : all.first.$2;
     });
+
+    // Đặt lại lịch nhắc mỗi lần mở màn hình chính: đã thu hôm nay thì lần
+    // nhắc kế tiếp là ngày mai.
+    final (hour, minute) = await _storage.reminderTime();
+    await ReminderService.instance.schedule(
+      hour: hour,
+      minute: minute,
+      doneToday: days.contains(today),
+      askPermission: true,
+    );
   }
 
   Future<void> _openSession() async {
