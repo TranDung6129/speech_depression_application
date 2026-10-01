@@ -1,6 +1,3 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 /// Cấu hình đọc lúc build, truyền qua `--dart-define`.
 ///
 /// Ví dụ:
@@ -13,6 +10,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// và không có file cấu hình nào bị commit nhầm.
 class AppConfig {
   AppConfig._();
+
+  static const String consentVersion = 'v1';
 
   /// Địa chỉ API backend.
   /// Mặc định `http://127.0.0.1:8000` hoạt động trực tiếp khi:

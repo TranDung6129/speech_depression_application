@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import '../main.dart';
+import '../services/auth_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
@@ -22,21 +24,49 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      endDrawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(color: AppColors.greenDeep),
+              child: Text('Settings', style: TextStyle(color: Theme.of(context).colorScheme.surface, fontSize: 24)),
+            ),
+            ValueListenableBuilder<ThemeMode>(
+              valueListenable: appThemeMode,
+              builder: (context, mode, _) {
+                return SwitchListTile(
+                  title: const Text('Dark Mode'),
+                  value: mode == ThemeMode.dark,
+                  onChanged: (val) {
+                    appThemeMode.value = val ? ThemeMode.dark : ThemeMode.light;
+                  },
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Sign out'),
+              onTap: () => AuthService.instance.signOut(),
+            ),
+          ],
+        ),
+      ),
       body: IndexedStack(
         index: _tab,
         children: const [
           _HomeTab(),
           _ComingSoonTab(
             icon: Icons.chat_bubble_outline_rounded,
-            title: 'Trò chuyện',
+            title: 'Chat',
             body:
-                'Phần trò chuyện đang được xây dựng cùng chuyên gia tâm lý.\n'
-                'Hiện tại bạn dùng nhật ký giọng nói ở tab Trang chủ.',
+                'The chat experience is still being built with our care team.\n'
+                'For now, you can use the voice journal in the Home tab.',
           ),
           _ComingSoonTab(
             icon: Icons.spa_outlined,
-            title: 'Thư giãn',
-            body: 'Bài tập thở và âm thanh thư giãn sẽ có ở đây.',
+            title: 'Relax',
+            body: 'Breathing exercises and calming sounds will appear here soon.',
           ),
           ProfileScreen(),
         ],
@@ -44,7 +74,7 @@ class _HomeShellState extends State<HomeShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
-        backgroundColor: AppColors.surface,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         indicatorColor: AppColors.greenTint,
         height: 64,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -52,19 +82,19 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home_rounded, color: AppColors.greenDeep),
-            label: 'Trang chủ',
+            label: 'Home',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline_rounded),
-            label: 'Trò chuyện',
+            label: 'Chat',
           ),
           NavigationDestination(
             icon: Icon(Icons.spa_outlined),
-            label: 'Thư giãn',
+            label: 'Relax',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),
-            label: 'Cá nhân',
+            label: 'Profile',
           ),
         ],
       ),
@@ -97,32 +127,43 @@ class _HomeTabState extends State<_HomeTab> {
   Future<void> _load() async {
     final days = await _storage.recordedDays();
     final draft = await _storage.loadDraft();
-    final entries = await _storage.loadEntries();
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-
-    // Streak: đếm ngược từ hôm nay, dừng ở ngày đầu tiên không có bản ghi.
-    var streak = 0;
-    var cursor = days.contains(today)
-        ? today
-        : today.subtract(const Duration(days: 1));
-    while (days.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-
+    
+    final summary = await AuthService.instance.fetchSummary();
     if (!mounted) return;
-    setState(() {
-      _recordedDays = days;
-      _draft = draft;
-      _streak = streak;
-      _journaledToday = days.contains(today);
-      _monthCount = entries
-          .where((e) =>
-              e.recordedAt.year == now.year && e.recordedAt.month == now.month)
-          .length;
-    });
+
+    if (summary != null) {
+      setState(() {
+        _recordedDays = days;
+        _draft = draft;
+        _streak = summary['current_streak_days'] as int? ?? 0;
+        _journaledToday = summary['recorded_today'] as bool? ?? false;
+        _monthCount = summary['journal_count'] as int? ?? 0;
+      });
+    } else {
+      final entries = await _storage.loadEntries();
+      var streak = 0;
+      var cursor = days.contains(today)
+          ? today
+          : today.subtract(const Duration(days: 1));
+      while (days.contains(cursor)) {
+        streak++;
+        cursor = cursor.subtract(const Duration(days: 1));
+      }
+
+      setState(() {
+        _recordedDays = days;
+        _draft = draft;
+        _streak = streak;
+        _journaledToday = days.contains(today);
+        _monthCount = entries
+            .where((e) =>
+                e.recordedAt.year == now.year && e.recordedAt.month == now.month)
+            .length;
+      });
+    }
   }
 
   Future<void> _openJournal() async {
@@ -182,8 +223,8 @@ class _HomeTabState extends State<_HomeTab> {
             const SizedBox(height: 18),
             Text(
               _journaledToday
-                  ? 'Hôm nay bạn đã ghi rồi'
-                  : 'Bạn thấy thế nào hôm nay?',
+                  ? 'You already logged today'
+                  : 'How are you feeling today?',
               style: const TextStyle(fontSize: 20, height: 1.35),
             ),
             const SizedBox(height: 16),
@@ -203,10 +244,10 @@ class _HomeTabState extends State<_HomeTab> {
   Widget _header() {
     final hour = DateTime.now().hour;
     final greeting = hour < 11
-        ? 'Chào buổi sáng'
+        ? 'Good morning'
         : hour < 18
-            ? 'Chào buổi chiều'
-            : 'Chào buổi tối';
+            ? 'Good afternoon'
+            : 'Good evening';
 
     return Row(
       children: [
@@ -224,29 +265,35 @@ class _HomeTabState extends State<_HomeTab> {
                   color: AppColors.greenDeep,
                   fontWeight: FontWeight.w500)),
         ),
-        const SizedBox(width: 11),
+        SizedBox(width: 11),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(greeting,
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textMuted)),
-              const Text('Minh Dũng', style: TextStyle(fontSize: 14)),
+                  style: TextStyle(
+                      fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+              AnimatedBuilder(
+                animation: AuthService.instance,
+                builder: (context, _) {
+                  return Text(AuthService.instance.displayName,
+                      style: const TextStyle(fontSize: 14));
+                },
+              ),
             ],
           ),
         ),
         IconButton(
           onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const HistoryScreen()),
+            MaterialPageRoute(builder: (_) => HistoryScreen()),
           ),
-          icon: const Icon(Icons.calendar_today_outlined,
-              size: 20, color: AppColors.textSecondary),
+          icon: Icon(Icons.calendar_today_outlined,
+              size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
         IconButton(
           onPressed: () => Scaffold.of(context).openEndDrawer(),
-          icon: const Icon(Icons.menu_rounded,
-              size: 22, color: AppColors.textSecondary),
+          icon: Icon(Icons.menu_rounded,
+              size: 22, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       ],
     );
@@ -266,25 +313,23 @@ class _HomeTabState extends State<_HomeTab> {
             Container(
               width: 52,
               height: 52,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white,
+                color: Theme.of(context).colorScheme.surface,
               ),
               child: Icon(
-                _journaledToday
-                    ? Icons.check_rounded
-                    : Icons.mic_none_rounded,
+                _journaledToday ? Icons.check_rounded : Icons.mic_none_rounded,
                 size: 23,
                 color: AppColors.greenDeep,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              _journaledToday ? 'Ghi thêm một đoạn nữa' : 'Nhật ký hôm nay',
+              _journaledToday ? 'Add another entry' : 'Today\'s journal',
               style: const TextStyle(fontSize: 14, color: AppColors.greenDeep),
             ),
             const SizedBox(height: 3),
-            const Text('Khoảng một phút',
+            const Text('About a minute',
                 style: TextStyle(fontSize: 11, color: Color(0xFF085041))),
           ],
         ),
@@ -300,7 +345,7 @@ class _HomeTabState extends State<_HomeTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 15),
         decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
+          color: Theme.of(context).colorScheme.surfaceVariant,
           borderRadius: BorderRadius.circular(18),
         ),
         child: Row(
@@ -325,20 +370,20 @@ class _HomeTabState extends State<_HomeTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Đánh giá chuyên sâu',
+                  Text('Deep check-in',
                       style: TextStyle(fontSize: 13)),
                   Text(
                     hasDraft
-                        ? 'Đang dở ${_draft!.answeredCount}/${AssessmentQuestion.total} câu'
-                        : 'Bốn câu, khoảng năm phút',
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textMuted),
+                        ? 'In progress ${_draft!.answeredCount}/${AssessmentQuestion.total} questions'
+                        : 'Four questions, about five minutes',
+                    style: TextStyle(
+                        fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right,
-                size: 18, color: AppColors.textMuted),
+            Icon(Icons.chevron_right,
+                size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           ],
         ),
       ),
@@ -352,8 +397,8 @@ class _HomeTabState extends State<_HomeTab> {
           child: _statTile(
             icon: Icons.local_fire_department_outlined,
             iconColor: const Color(0xFFD85A30),
-            value: '$_streak ngày',
-            label: 'liên tiếp',
+            value: '$_streak days',
+            label: 'in a row',
           ),
         ),
         const SizedBox(width: 10),
@@ -362,7 +407,7 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.show_chart_rounded,
             iconColor: const Color(0xFF185FA5),
             value: '$_monthCount',
-            label: 'bản ghi tháng này',
+            label: 'total recordings',
           ),
         ),
       ],
@@ -378,19 +423,19 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 18, color: iconColor),
-          const SizedBox(height: 8),
-          Text(value, style: const TextStyle(fontSize: 18)),
-          const SizedBox(height: 2),
+          SizedBox(height: 8),
+          Text(value, style: TextStyle(fontSize: 18)),
+          SizedBox(height: 2),
           Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: AppColors.textMuted)),
+              style: TextStyle(
+                  fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
         ],
       ),
     );
@@ -400,7 +445,7 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -409,13 +454,13 @@ class _HomeTabState extends State<_HomeTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Tuần này', style: TextStyle(fontSize: 13)),
+              Text('This week', style: TextStyle(fontSize: 13)),
               GestureDetector(
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  MaterialPageRoute(builder: (_) => HistoryScreen()),
                 ),
-                child: const Icon(Icons.chevron_right,
-                    size: 16, color: AppColors.textMuted),
+                child: Icon(Icons.chevron_right,
+                    size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
               ),
             ],
           ),
@@ -431,8 +476,7 @@ class _HomeTabState extends State<_HomeTab> {
 
 enum _DraftChoice { resume, startNew }
 
-/// Hỏi trước khi vào phiên dở — không tự động nhảy vào giữa chừng,
-/// vì người dùng có thể đã quên mình đang trả lời đến đâu.
+/// Prompt before entering an unfinished session.
 class _ResumeDraftSheet extends StatelessWidget {
   const _ResumeDraftSheet({required this.draft});
 
@@ -442,15 +486,15 @@ class _ResumeDraftSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final days = DateTime.now().difference(draft.lastTouchedAt).inDays;
     final ago = days == 0
-        ? 'hôm nay'
+        ? 'today'
         : days == 1
-            ? 'hôm qua'
-            : '$days ngày trước';
+            ? 'yesterday'
+            : '$days days ago';
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(22, 16, 22, 30),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
       child: Column(
@@ -466,15 +510,15 @@ class _ResumeDraftSheet extends StatelessWidget {
             child: const Icon(Icons.bookmark_outline_rounded,
                 color: Color(0xFF854F0B), size: 21),
           ),
-          const SizedBox(height: 16),
-          const Text('Bạn đang có một đánh giá dang dở',
+          SizedBox(height: 16),
+          Text('You have an unfinished assessment',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16)),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           Text(
-            'Đã trả lời ${draft.answeredCount}/${AssessmentQuestion.total} câu · $ago',
-            style: const TextStyle(
-                fontSize: 12, color: AppColors.textSecondary),
+            'Answered ${draft.answeredCount}/${AssessmentQuestion.total} questions · $ago',
+            style: TextStyle(
+                fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 22),
           SizedBox(
@@ -491,7 +535,7 @@ class _ResumeDraftSheet extends StatelessWidget {
                 ),
                 elevation: 0,
               ),
-              child: Text('Tiếp tục từ câu ${draft.answeredCount + 1}'),
+              child: Text('Continue from question ${draft.answeredCount + 1}'),
             ),
           ),
           const SizedBox(height: 8),
@@ -501,27 +545,27 @@ class _ResumeDraftSheet extends StatelessWidget {
               onPressed: () =>
                   Navigator.of(context).pop(_DraftChoice.startNew),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                side: const BorderSide(color: AppColors.borderStrong),
+                padding: EdgeInsets.symmetric(vertical: 14),
+                side: BorderSide(color: AppColors.borderStrong),
                 shape: RoundedRectangleBorder(
                   borderRadius:
                       BorderRadius.circular(AppRadius.structuredButton),
                 ),
               ),
-              child: const Text('Bắt đầu đánh giá mới',
-                  style: TextStyle(color: AppColors.textSecondary)),
+              child: Text('Start a new assessment',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ),
           ),
-          const SizedBox(height: 14),
-          const Text('Các câu đã trả lời vẫn được giữ lại',
-              style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+          SizedBox(height: 14),
+          Text('Your answered questions are still saved',
+              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
         ],
       ),
     );
   }
 }
 
-/// Tab cho các phần chưa xây dựng. Hiện rõ là chưa có, không giả vờ hoạt động.
+/// Tab for features not built yet.
 class _ComingSoonTab extends StatelessWidget {
   const _ComingSoonTab({
     required this.icon,
@@ -546,21 +590,21 @@ class _ComingSoonTab extends StatelessWidget {
                 width: 58,
                 height: 58,
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceMuted,
+                  color: Theme.of(context).colorScheme.surfaceVariant,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: Icon(icon, size: 25, color: AppColors.textMuted),
+                child: Icon(icon, size: 25, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
               ),
-              const SizedBox(height: 18),
-              Text(title, style: const TextStyle(fontSize: 17)),
-              const SizedBox(height: 8),
+              SizedBox(height: 18),
+              Text(title, style: TextStyle(fontSize: 17)),
+              SizedBox(height: 8),
               Text(
                 body,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13,
                     height: 1.5,
-                    color: AppColors.textSecondary),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),

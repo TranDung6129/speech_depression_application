@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -75,6 +76,11 @@ class UploadQueue extends ChangeNotifier {
       _jobs.map((j) => jsonEncode(j.toJson())).toList(),
     );
     notifyListeners();
+  }
+
+  Future<void> clearAll() async {
+    _jobs.clear();
+    await _save();
   }
 
   /// Đưa một bản ghi vào hàng đợi. Trả về ngay, việc tải chạy nền.
@@ -157,6 +163,14 @@ class UploadQueue extends ChangeNotifier {
       final response = await http.Response.fromStream(streamed);
 
       if (response.statusCode == 201) {
+        final serverSha256 = _readServerSha256(response.body);
+        if (serverSha256 != null) {
+          final localSha256 = await _sha256Hex(file);
+          if (localSha256 != serverSha256) {
+            job.lastError = 'Checksum mismatch; keeping file for retry';
+            return false;
+          }
+        }
         return true;
       }
 
@@ -182,6 +196,24 @@ class UploadQueue extends ChangeNotifier {
       job.lastError = 'Không kết nối được';
       return false;
     }
+  }
+
+  static String? _readServerSha256(String body) {
+    try {
+      final parsed = jsonDecode(body);
+      if (parsed is Map<String, dynamic>) {
+        final sha = parsed['sha256'];
+        if (sha is String && sha.isNotEmpty) return sha;
+      }
+    } catch (_) {
+      // Ignore malformed upload responses and keep the current behaviour.
+    }
+    return null;
+  }
+
+  static Future<String> _sha256Hex(File file) async {
+    final bytes = await file.readAsBytes();
+    return sha256.convert(bytes).toString();
   }
 
   /// Thử lại thủ công những việc đã hết lượt, dùng cho nút trong phần cài đặt.

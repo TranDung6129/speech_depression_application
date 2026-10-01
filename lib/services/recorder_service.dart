@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
@@ -15,7 +16,7 @@ class RecorderService {
   RecorderService._();
   static final RecorderService instance = RecorderService._();
 
-  final AudioRecorder _recorder = AudioRecorder();
+  AudioRecorder _recorder = AudioRecorder();
   final _uuid = const Uuid();
 
   /// Ngưỡng thời lượng tối thiểu. Dưới mức này thì các thống kê về
@@ -39,8 +40,7 @@ class RecorderService {
   Stream<double> get levelStream => _levelController.stream;
 
   Future<bool> ensurePermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
+    return await _recorder.hasPermission();
   }
 
   /// Bắt đầu ghi. Trả về đường dẫn file sẽ được ghi vào.
@@ -49,13 +49,24 @@ class RecorderService {
       throw const RecorderPermissionDenied();
     }
 
-    final dir = await getApplicationDocumentsDirectory();
-    final folder = Directory('${dir.path}/recordings');
-    if (!await folder.exists()) {
-      await folder.create(recursive: true);
+    if (await _recorder.isRecording()) {
+      await _recorder.stop();
     }
 
-    final path = '${folder.path}/${prefix}_${_uuid.v4()}.wav';
+    await _ampSub?.cancel();
+    _ampSub = null;
+    await _recorder.dispose();
+    _recorder = AudioRecorder();
+
+    String path = '';
+    if (!kIsWeb) {
+      final dir = await getApplicationDocumentsDirectory();
+      final folder = Directory('${dir.path}/recordings');
+      if (!await folder.exists()) {
+        await folder.create(recursive: true);
+      }
+      path = '${folder.path}/${prefix}_${_uuid.v4()}.wav';
+    }
 
     await _recorder.start(
       const RecordConfig(
@@ -68,7 +79,7 @@ class RecorderService {
         noiseSuppress: false,
         autoGain: false,
       ),
-      path: path,
+      path: kIsWeb ? '' : path,
     );
 
     _amplitudeLog.clear();
@@ -117,7 +128,7 @@ class RecorderService {
     await _ampSub?.cancel();
     _ampSub = null;
     _startedAt = null;
-    if (path != null) {
+    if (path != null && !kIsWeb) {
       final file = File(path);
       if (await file.exists()) await file.delete();
     }

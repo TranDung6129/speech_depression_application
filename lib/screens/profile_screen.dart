@@ -50,37 +50,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
-  /// Tần suất đánh giá do người dùng tự chọn.
-  ///
-  /// Lưu ý cho phía phân tích: giá trị này CHỈ điều khiển lời nhắc.
-  /// Khoảng cách thực tế giữa các phiên phải đọc từ timestamp của từng phiên,
-  /// không được suy ra từ cài đặt này — người dùng thường làm không đúng lịch.
   Future<void> _pickInterval() async {
     final picked = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        padding: const EdgeInsets.fromLTRB(22, 16, 22, 30),
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Bao lâu nhắc bạn một lần?',
+            Text('How often should we remind you?',
                 style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 4),
-            const Text('Bạn vẫn có thể làm bất cứ lúc nào bạn muốn.',
+            SizedBox(height: 4),
+            Text('You can still do it whenever you want.',
                 style: TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
+                    fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 16),
             ...[
-              (3, 'Ba ngày một lần'),
-              (7, 'Mỗi tuần'),
-              (14, 'Hai tuần một lần'),
-              (0, 'Không nhắc — mình tự chủ động'),
+              (3, 'Every 3 days'),
+              (7, 'Every week'),
+              (14, 'Every 2 weeks'),
+              (0, 'No reminder — I will check in myself'),
             ].map((opt) => ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(opt.$2, style: const TextStyle(fontSize: 14)),
@@ -107,21 +102,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.card)),
-        title: const Text('Xoá toàn bộ bản ghi?',
+        title: const Text('Delete all recordings?',
             style: TextStyle(fontSize: 17)),
         content: const Text(
-          'Tất cả bản ghi và đánh giá trên máy sẽ bị xoá. '
-          'Việc này không hoàn tác được.',
+          'All recordings and assessments stored on this device will be deleted. This action cannot be undone.',
           style: TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Giữ lại'),
+            child: const Text('Keep them'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Xoá hết',
+            child: const Text('Delete all',
                 style: TextStyle(color: AppColors.riskHigh)),
           ),
         ],
@@ -132,15 +126,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await _storage.wipeAll();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã xoá toàn bộ bản ghi.')),
+      const SnackBar(content: Text('All recordings have been deleted.')),
     );
   }
 
   String get _intervalLabel => switch (_intervalDays) {
-        3 => 'Ba ngày một lần',
-        7 => 'Mỗi tuần',
-        14 => 'Hai tuần một lần',
-        _ => 'Không nhắc',
+        3 => 'Every 3 days',
+        7 => 'Every week',
+        14 => 'Every 2 weeks',
+        _ => 'No reminder',
       };
 
   @override
@@ -156,51 +150,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 18),
           _syncCard(),
           const SizedBox(height: 14),
+          AnimatedBuilder(
+            animation: AuthService.instance,
+            builder: (context, _) {
+              if (AuthService.instance.clinicId != null) {
+                return const SizedBox.shrink();
+              }
+              return SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: _joinClinic,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: AppColors.borderStrong),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  child: const Text('Enter clinic code'),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 14),
           _sectionCard([
             _row(
               icon: Icons.notifications_none_rounded,
-              title: 'Nhắc ghi nhật ký',
-              subtitle: 'Hằng ngày · $time',
+              title: 'Journal reminder',
+              subtitle: 'Daily · $time',
               onTap: _pickReminder,
             ),
             _divider(),
             _row(
               icon: Icons.assignment_outlined,
-              title: 'Tần suất đánh giá',
-              subtitle: 'Bạn tự chọn · $_intervalLabel',
+              title: 'Assessment frequency',
+              subtitle: 'You choose · $_intervalLabel',
               onTap: _pickInterval,
             ),
             _divider(),
             _row(
               icon: Icons.lock_outline_rounded,
-              title: 'Quyền riêng tư và dữ liệu',
-              subtitle: 'Xem, tải về hoặc xoá',
+              title: 'Privacy & data',
+              subtitle: 'View, download, or delete',
               onTap: _confirmWipe,
             ),
           ]),
-          const SizedBox(height: 14),
-          const Padding(
+          SizedBox(height: 14),
+          Padding(
             padding: EdgeInsets.only(left: 4, bottom: 8),
-            child: Text('Sắp có',
-                style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+            child: Text('Coming soon',
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
           ),
           _sectionCard([
-            _lockedRow(Icons.chat_bubble_outline_rounded, 'Trò chuyện cùng AI'),
+            _lockedRow(Icons.chat_bubble_outline_rounded, 'AI chat'),
             _divider(),
-            _lockedRow(Icons.spa_outlined, 'Thư giãn và âm nhạc'),
+            _lockedRow(Icons.spa_outlined, 'Relaxation & music'),
             _divider(),
-            _lockedRow(Icons.bedtime_outlined, 'Giấc ngủ và năng lượng'),
+            _lockedRow(Icons.bedtime_outlined, 'Sleep & energy'),
             _divider(),
-            _lockedRow(
-                Icons.medical_services_outlined, 'Kết nối chuyên gia'),
+            _lockedRow(Icons.medical_services_outlined, 'Care team connection'),
           ]),
-          const SizedBox(height: 20),
+          SizedBox(height: 20),
           Center(
             child: TextButton(
               onPressed: _confirmSignOut,
-              child: const Text('Đăng xuất',
+              child: Text('Sign out',
                   style: TextStyle(
-                      fontSize: 13, color: AppColors.textSecondary)),
+                      fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ),
           ),
         ],
@@ -208,11 +224,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Cho người dùng thấy còn bản ghi nào chưa gửi được.
-  ///
-  /// Hiện cả khi mọi thứ bình thường, không chỉ khi có lỗi: nếu chỉ hiện lúc
-  /// hỏng thì người dùng không có cách nào biết dữ liệu của mình đã lên đến
-  /// nơi hay chưa.
   Widget _syncCard() {
     return AnimatedBuilder(
       animation: UploadQueue.instance,
@@ -224,7 +235,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           decoration: BoxDecoration(
-            color: failed > 0 ? AppColors.amberTint : AppColors.surfaceMuted,
+            color: failed > 0 ? AppColors.amberTint : Theme.of(context).colorScheme.surfaceVariant,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Row(
@@ -238,24 +249,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 size: 18,
                 color: failed > 0
                     ? const Color(0xFF854F0B)
-                    : AppColors.textSecondary,
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   allClear
-                      ? 'Đã lưu xong tất cả bản ghi'
+                      ? 'All recordings are safely stored'
                       : failed > 0
-                          ? '$failed bản ghi chưa gửi được'
-                          : 'Đang gửi $pending bản ghi',
+                          ? '$failed recordings could not be uploaded'
+                          : 'Uploading $pending recordings',
                   style: const TextStyle(fontSize: 13),
                 ),
               ),
               if (failed > 0)
                 TextButton(
                   onPressed: () => UploadQueue.instance.retryFailed(),
-                  child: const Text('Thử lại',
-                      style: TextStyle(fontSize: 12)),
+                  child: const Text('Retry', style: TextStyle(fontSize: 12)),
                 ),
             ],
           ),
@@ -272,22 +282,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.card)),
-        title: const Text('Đăng xuất?', style: TextStyle(fontSize: 17)),
+        title: const Text('Sign out?', style: TextStyle(fontSize: 17)),
         content: Text(
           pending > 0
-              ? 'Còn $pending bản ghi chưa gửi lên. Chúng vẫn nằm trên máy '
-                  'và sẽ được gửi khi bạn đăng nhập lại.'
-              : 'Bản ghi trên máy vẫn được giữ nguyên.',
+              ? 'There are $pending recordings not yet uploaded. They will stay on this device and be sent when you sign back in.'
+              : 'Your recordings on this device will remain saved.',
           style: const TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Ở lại'),
+            child: const Text('Stay'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Đăng xuất'),
+            child: const Text('Sign out'),
           ),
         ],
       ),
@@ -296,6 +305,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmed == true) {
       await AuthService.instance.signOut();
     }
+  }
+
+  Future<void> _joinClinic() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card)),
+        title: const Text('Enter clinic code', style: TextStyle(fontSize: 17)),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'Invite code'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Join'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (code == null || code.isEmpty) return;
+
+    final outcome = await AuthService.instance.joinClinic(code);
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome.ok
+              ? 'Clinic code saved.'
+              : outcome.message ?? 'Could not save clinic code.',
+        ),
+      ),
+    );
   }
 
   Widget _profileHeader() {
@@ -316,10 +367,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.w500)),
         ),
         const SizedBox(height: 10),
-        const Text('Minh Dũng', style: TextStyle(fontSize: 16)),
-        const SizedBox(height: 3),
-        const Text('Liên kết với phòng khám',
-            style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+        AnimatedBuilder(
+          animation: AuthService.instance,
+          builder: (context, _) {
+            return Text(AuthService.instance.displayName,
+                style: TextStyle(fontSize: 16));
+          },
+        ),
+        SizedBox(height: 3),
+        Text('Connected with clinic',
+            style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
       ],
     );
   }
@@ -327,7 +384,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _sectionCard(List<Widget> children) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(children: children),
@@ -350,21 +407,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: AppColors.textSecondary),
-            const SizedBox(width: 12),
+            Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 13)),
+                  Text(title, style: TextStyle(fontSize: 13)),
                   Text(subtitle,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textMuted)),
+                      style: TextStyle(
+                          fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right,
-                size: 16, color: AppColors.textMuted),
+            Icon(Icons.chevron_right,
+                size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           ],
         ),
       ),
@@ -375,16 +432,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Opacity(
       opacity: 0.5,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: AppColors.textMuted),
-            const SizedBox(width: 12),
+            Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
+            SizedBox(width: 12),
             Expanded(
-              child: Text(title, style: const TextStyle(fontSize: 13)),
+              child: Text(title, style: TextStyle(fontSize: 13)),
             ),
-            const Text('Sắp có',
-                style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+            Text('Coming soon',
+                style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
           ],
         ),
       ),

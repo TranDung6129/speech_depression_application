@@ -7,12 +7,9 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
 
-/// Màn lịch sử.
-///
-/// Nguyên tắc quan trọng: lịch tháng **chỉ hiển thị đã ghi / chưa ghi**,
-/// không tô màu theo cảm xúc và tuyệt đối không hiển thị điểm của mô hình.
-/// Nhìn lại cả tháng toàn màu tối có thể khiến người dùng nản thêm — nhãn
-/// cảm xúc chỉ xuất hiện khi bấm vào một ngày cụ thể.
+/// History screen.
+/// The important rule: the monthly view shows only whether a day has a recording.
+/// It never colors by emotion and never displays model scores.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -73,7 +70,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không mở được bản ghi này.')),
+        const SnackBar(content: Text('This recording could not be opened.')),
       );
     }
   }
@@ -92,16 +89,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: const EdgeInsets.fromLTRB(22, 16, 22, 30),
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(DateFormat("d 'tháng' M, y", 'vi').format(day),
+            Text(DateFormat("d MMMM y", 'en').format(day),
                 style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 14),
             ...dayEntries.map((e) => Padding(
@@ -116,14 +113,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          e.selfTag?.label ?? 'Chưa gắn nhãn',
-                          style: const TextStyle(fontSize: 13),
+                          e.selfTag?.label ?? 'No label yet',
+                          style: TextStyle(fontSize: 13),
                         ),
                       ),
                       Text(
                         DateFormat('HH:mm').format(e.recordedAt),
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.textMuted),
+                        style: TextStyle(
+                            fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
                       ),
                     ],
                   ),
@@ -141,7 +138,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         backgroundColor: AppColors.canvas,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Nhật ký của bạn', style: TextStyle(fontSize: 17)),
+        title: const Text('Your journal', style: TextStyle(fontSize: 17)),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
@@ -151,7 +148,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           if (_entries.isEmpty && _sessions.isEmpty)
             _emptyState()
           else ...[
-            const Text('Gần đây', style: TextStyle(fontSize: 14)),
+            const Text('Recent', style: TextStyle(fontSize: 14)),
             const SizedBox(height: 10),
             ..._entries.take(10).map(_entryTile),
             ..._sessions.take(5).map(_sessionTile),
@@ -165,7 +162,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -177,12 +174,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               IconButton(
                 onPressed: () => setState(() =>
                     _month = DateTime(_month.year, _month.month - 1)),
-                icon: const Icon(Icons.chevron_left, size: 18),
-                color: AppColors.textSecondary,
+                icon: Icon(Icons.chevron_left, size: 18),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              Text(DateFormat("'Tháng' M, y", 'vi').format(_month),
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.textSecondary)),
+              Text(DateFormat('MMMM y', 'en').format(_month),
+                  style: TextStyle(
+                      fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               IconButton(
                 onPressed: _month.isBefore(
                         DateTime(DateTime.now().year, DateTime.now().month))
@@ -190,20 +187,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         _month = DateTime(_month.year, _month.month + 1))
                     : null,
                 icon: const Icon(Icons.chevron_right, size: 18),
-                color: AppColors.textSecondary,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           MonthGrid(
             month: _month,
             recordedDays: _recordedDays,
             onTapDay: _showDay,
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'Ô đậm là ngày bạn đã ghi. Chạm để xem lại.',
-            style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+          SizedBox(height: 10),
+          Text(
+            'Dark days indicate entries you have recorded. Tap to review.',
+            style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           ),
         ],
       ),
@@ -217,7 +214,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -238,14 +235,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Nhật ký · ${DateFormat("d 'tháng' M", 'vi').format(entry.recordedAt)}',
-                  style: const TextStyle(fontSize: 12),
+                  'Journal · ${DateFormat("d MMMM", 'en').format(entry.recordedAt)}',
+                  style: TextStyle(fontSize: 12),
                 ),
                 Text(
-                  '${entry.duration.inSeconds} giây'
+                  '${entry.duration.inSeconds} seconds'
                   '${entry.selfTag != null ? ' · ${entry.selfTag!.label}' : ''}',
-                  style: const TextStyle(
-                      fontSize: 10, color: AppColors.textMuted),
+                  style: TextStyle(
+                      fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
                 ),
               ],
             ),
@@ -255,7 +252,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             icon: Icon(
               playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
               size: 18,
-              color: AppColors.textSecondary,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -266,17 +263,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _sessionTile(AssessmentSession session) {
     final label = switch (session.status) {
       SessionStatus.completed =>
-        'Hoàn thành ${session.answeredCount}/${AssessmentQuestion.total}',
+        'Completed ${session.answeredCount}/${AssessmentQuestion.total}',
       SessionStatus.abandoned =>
-        'Dừng ở câu ${session.answeredCount}/${AssessmentQuestion.total}',
-      SessionStatus.draft => 'Đang dở',
+        'Stopped at ${session.answeredCount}/${AssessmentQuestion.total}',
+      SessionStatus.draft => 'In progress',
     };
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -297,12 +294,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Đánh giá · ${DateFormat("d 'tháng' M", 'vi').format(session.startedAt)}',
-                  style: const TextStyle(fontSize: 12),
+                  'Assessment · ${DateFormat("d MMMM", 'en').format(session.startedAt)}',
+                  style: TextStyle(fontSize: 12),
                 ),
                 Text(label,
-                    style: const TextStyle(
-                        fontSize: 10, color: AppColors.textMuted)),
+                    style: TextStyle(
+                        fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
               ],
             ),
           ),
@@ -313,20 +310,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _emptyState() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 30),
+      padding: EdgeInsets.symmetric(vertical: 48, horizontal: 30),
       child: Column(
         children: [
-          const Icon(Icons.mic_none_rounded,
-              size: 34, color: AppColors.textMuted),
-          const SizedBox(height: 14),
-          const Text('Chưa có bản ghi nào',
+          Icon(Icons.mic_none_rounded,
+              size: 34, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
+          SizedBox(height: 14),
+          Text('No recordings yet',
               style: TextStyle(fontSize: 15)),
-          const SizedBox(height: 6),
-          const Text(
-            'Ghi nhật ký đầu tiên ở màn hình chính. Chỉ mất khoảng một phút.',
+          SizedBox(height: 6),
+          Text(
+            'Record your first journal entry from the home screen. It only takes about a minute.',
             textAlign: TextAlign.center,
             style: TextStyle(
-                fontSize: 12, height: 1.5, color: AppColors.textSecondary),
+                fontSize: 12, height: 1.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),

@@ -11,13 +11,12 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
 
-/// Màn ghi nhật ký hằng ngày.
+/// Daily journal screen.
 ///
-/// Đặc điểm thiết kế, khác hẳn màn đánh giá chuyên sâu:
-///  - Nền gradient ấm, bo tròn hoàn toàn, vòng thở chậm.
-///  - Câu gợi ý đổi theo ngày và **luôn hiện trong lúc ghi** — người đang
-///    nói cần nhìn thấy câu hỏi, nhất là khi dễ mất mạch suy nghĩ.
-///  - Mở ra là nói được ngay, không có bước chuẩn bị.
+/// The design is intentionally different from the deeper assessment screen:
+///  - warm gradient background, fully rounded cards, soft breathing motion.
+///  - a daily prompt stays visible while recording so users can stay in flow.
+///  - start recording immediately without any extra preparation steps.
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
 
@@ -36,6 +35,7 @@ class _JournalScreenState extends State<JournalScreen> {
   Duration _elapsed = Duration.zero;
   bool _isRecording = false;
   bool _isSaving = false;
+  bool _isStarting = false;
   String? _errorMessage;
 
   late final String _prompt = DailyPrompt.forDate(DateTime.now());
@@ -49,17 +49,26 @@ class _JournalScreenState extends State<JournalScreen> {
   }
 
   Future<void> _start() async {
-    setState(() => _errorMessage = null);
+    if (_isStarting) return;
+    setState(() {
+      _isStarting = true;
+      _errorMessage = null;
+    });
 
     try {
       await _recorder.start(prefix: 'journal');
     } on RecorderPermissionDenied {
-      setState(() => _errorMessage =
-          'Mình cần quyền dùng micro để ghi lại giọng bạn.');
+      setState(() {
+        _isStarting = false;
+        _errorMessage = 'I need microphone access to record your voice.';
+      });
       return;
-    } catch (_) {
-      setState(() =>
-          _errorMessage = 'Chưa bắt đầu ghi được. Bạn thử lại giúp mình nhé.');
+    } catch (e, stack) {
+      print('Recording start error: $e\n$stack');
+      setState(() {
+        _isStarting = false;
+        _errorMessage = 'Recording could not start. Please try again.';
+      });
       return;
     }
 
@@ -77,6 +86,7 @@ class _JournalScreenState extends State<JournalScreen> {
     });
 
     setState(() {
+      _isStarting = false;
       _isRecording = true;
       _elapsed = Duration.zero;
       _levels.clear();
@@ -137,8 +147,8 @@ class _JournalScreenState extends State<JournalScreen> {
     if (mounted) Navigator.of(context).pop(true);
   }
 
-  /// Sau khi ghi xong, mời người dùng tự gắn một nhãn cho ngày hôm nay.
-  /// Bước này có thể bỏ qua — không ép, và không hiển thị bất kỳ điểm số nào.
+  /// After recording, prompt the user to tag their entry with a mood.
+  /// This step is optional and not scoring-based.
   Future<MoodTag?> _showTagSheet(JournalEntry entry) async {
     final tag = await showModalBottomSheet<MoodTag>(
       context: context,
@@ -155,11 +165,11 @@ class _JournalScreenState extends State<JournalScreen> {
   @override
   Widget build(BuildContext context) {
     final dateLabel =
-        DateFormat("EEEE, d 'tháng' M", 'vi').format(DateTime.now());
+        DateFormat("EEEE, d MMMM", 'en').format(DateTime.now());
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(gradient: kJournalGradient),
+        decoration: BoxDecoration(gradient: getJournalGradient(context)),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -172,16 +182,16 @@ class _JournalScreenState extends State<JournalScreen> {
                 _visual(),
                 const SizedBox(height: 18),
                 _timer(),
-                const Spacer(flex: 3),
+                Spacer(flex: 3),
                 if (_errorMessage != null) _errorBanner(),
                 _actionButton(),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Text(
                   _isRecording
-                      ? 'Dừng lâu cũng không sao — cứ từ từ'
-                      : 'Khoảng một phút là đủ',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textMuted),
+                      ? 'Take your time — it is okay to pause'
+                      : 'About a minute is enough',
+                  style: TextStyle(
+                      fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
                 ),
               ],
             ),
@@ -199,16 +209,16 @@ class _JournalScreenState extends State<JournalScreen> {
             if (_isRecording) await _recorder.cancel();
             if (mounted) Navigator.of(context).pop(false);
           },
-          icon: const Icon(Icons.chevron_left,
-              color: AppColors.textSecondary, size: 26),
+          icon: Icon(Icons.chevron_left,
+              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 26),
         ),
         Expanded(
           child: Text(
             dateLabel,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: AppColors.textMuted,
+              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
               letterSpacing: 0.3,
             ),
           ),
@@ -224,7 +234,7 @@ class _JournalScreenState extends State<JournalScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.65),
+            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.65),
             borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
           child: Row(
@@ -233,7 +243,7 @@ class _JournalScreenState extends State<JournalScreen> {
               const Icon(Icons.auto_awesome,
                   size: 13, color: Color(0xFFB07D3F)),
               const SizedBox(width: 6),
-              Text('Gợi ý hôm nay',
+              const Text('Today\'s prompt',
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.amberInk,
@@ -263,9 +273,9 @@ class _JournalScreenState extends State<JournalScreen> {
           : Container(
               width: 62,
               height: 62,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white,
+                color: Theme.of(context).colorScheme.surface,
               ),
               child: const Icon(Icons.mic_none_rounded,
                   size: 27, color: AppColors.greenDeep),
@@ -275,13 +285,13 @@ class _JournalScreenState extends State<JournalScreen> {
 
   Widget _timer() {
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 250),
+      duration: Duration(milliseconds: 250),
       opacity: _isRecording ? 1 : 0,
       child: Text(
         formatDuration(_elapsed),
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 13,
-          color: AppColors.textSecondary,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           letterSpacing: 1.2,
         ),
       ),
@@ -323,14 +333,14 @@ class _JournalScreenState extends State<JournalScreen> {
           elevation: 0,
         ),
         child: _isSaving
-            ? const SizedBox(
+            ? SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2, color: Theme.of(context).colorScheme.surface),
               )
             : Text(
-                _isRecording ? 'Mình nói xong rồi' : 'Bắt đầu',
+                _isRecording ? 'I am done recording' : 'Start',
                 style: const TextStyle(fontSize: 15),
               ),
       ),
@@ -343,9 +353,9 @@ class _MoodTagSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 28),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
       child: Column(
@@ -359,14 +369,14 @@ class _MoodTagSheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 20),
-          const Text('Đã lưu bản ghi hôm nay',
+          SizedBox(height: 20),
+          Text('Entry saved for today',
               style: TextStyle(fontSize: 17)),
-          const SizedBox(height: 6),
-          const Text(
-            'Bạn muốn ghi lại một từ cho hôm nay không?',
+          SizedBox(height: 6),
+          Text(
+            'Would you like to add a quick mood tag for today?',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 20),
           Wrap(
@@ -389,12 +399,12 @@ class _MoodTagSheet extends StatelessWidget {
                     ))
                 .toList(),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Để sau cũng được',
+            child: Text('Save for later',
                 style: TextStyle(
-                    fontSize: 13, color: AppColors.textMuted)),
+                    fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
           ),
         ],
       ),

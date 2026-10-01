@@ -88,7 +88,7 @@ class AppTheme {
       colorScheme: base.colorScheme.copyWith(
         primary: AppColors.greenDeep,
         secondary: AppColors.blueDeep,
-        surface: AppColors.surface,
+        surface: AppColors.surface, surfaceVariant: AppColors.surfaceMuted, outlineVariant: AppColors.border, outline: AppColors.borderStrong, onSurface: AppColors.textPrimary, onSurfaceVariant: AppColors.textSecondary,
       ),
       textTheme: base.textTheme.apply(
         bodyColor: AppColors.textPrimary,
@@ -116,6 +116,42 @@ class AppTheme {
       splashFactory: InkSparkle.splashFactory,
     );
   }
+
+  static ThemeData buildDark() {
+    final base = ThemeData.dark(useMaterial3: true);
+
+    return base.copyWith(
+      scaffoldBackgroundColor: const Color(0xFF1A1A1A),
+      colorScheme: base.colorScheme.copyWith(
+        primary: AppColors.greenSoft,
+        secondary: AppColors.blueSoft,
+        surface: const Color(0xFF242424), surfaceVariant: const Color(0xFF303030), outlineVariant: const Color(0xFF424242), outline: const Color(0xFF5A5A5A), onSurface: const Color(0xFFE0E0E0), onSurfaceVariant: const Color(0xFFB0B0B0),
+      ),
+      textTheme: base.textTheme.apply(
+        bodyColor: const Color(0xFFE0E0E0),
+        displayColor: const Color(0xFFE0E0E0),
+      ).copyWith(
+        headlineSmall: const TextStyle(
+          fontSize: 21,
+          height: 1.45,
+          fontWeight: FontWeight.w400,
+          color: Color(0xFFF5F5F5),
+        ),
+        titleMedium: const TextStyle(
+          fontSize: 16,
+          height: 1.4,
+          fontWeight: FontWeight.w500,
+        ),
+        bodyMedium: const TextStyle(fontSize: 14, height: 1.5),
+        bodySmall: const TextStyle(
+          fontSize: 12,
+          height: 1.4,
+          color: const Color(0xFFAAAAAA),
+        ),
+      ),
+      splashFactory: InkSparkle.splashFactory,
+    );
+  }
 }
 
 /// Gradient nền của màn nhật ký.
@@ -129,3 +165,20 @@ const LinearGradient kJournalGradient = LinearGradient(
   ],
   stops: [0.0, 0.55, 1.0],
 );
+
+const LinearGradient kJournalGradientDark = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Color(0xFF2A2621),
+    Color(0xFF1E2622),
+    Color(0xFF18221D),
+  ],
+  stops: [0.0, 0.55, 1.0],
+);
+
+LinearGradient getJournalGradient(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? kJournalGradientDark
+      : kJournalGradient;
+}

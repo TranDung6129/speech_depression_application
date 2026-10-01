@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import 'register_screen.dart';
 
-/// Màn đăng nhập.
+/// Sign-in screen.
 ///
-/// Cố tình để ít chữ và không hỏi gì ngoài email với mật khẩu. Đây là thứ
-/// đầu tiên người dùng gặp, và một biểu mẫu dài ở bước này là chỗ dễ bỏ cuộc
-/// nhất — nhất là với người đang mệt.
+/// Intentionally kept short and simple, asking only for email and password.
+/// This is the first thing users encounter, and a long form at this stage
+/// is the easiest place to give up — especially for tired users.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -19,7 +20,6 @@ class _SignInScreenState extends State<SignInScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
 
-  bool _isRegistering = false;
   bool _isBusy = false;
   String? _error;
 
@@ -35,11 +35,11 @@ class _SignInScreenState extends State<SignInScreen> {
     final password = _password.text;
 
     if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Bạn nhập lại email giúp mình nhé.');
+      setState(() => _error = 'Please enter a valid email address.');
       return;
     }
     if (password.length < 8) {
-      setState(() => _error = 'Mật khẩu cần ít nhất 8 ký tự.');
+      setState(() => _error = 'Password must be at least 8 characters long.');
       return;
     }
 
@@ -48,10 +48,10 @@ class _SignInScreenState extends State<SignInScreen> {
       _error = null;
     });
 
-    final auth = AuthService.instance;
-    final outcome = _isRegistering
-        ? await auth.register(email: email, password: password)
-        : await auth.signIn(email: email, password: password);
+    final outcome = await AuthService.instance.signIn(
+      email: email,
+      password: password,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -60,11 +60,36 @@ class _SignInScreenState extends State<SignInScreen> {
     });
   }
 
+  Future<void> _openRegister() async {
+    setState(() {
+      _isBusy = true;
+      _error = null;
+    });
+
+    final consentState = await AuthService.instance.checkConsentVersion();
+    if (!mounted) return;
+
+    setState(() => _isBusy = false);
+
+    if (consentState == ConsentVersionState.ok) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+      );
+      return;
+    }
+
+    setState(() {
+      _error = consentState == ConsentVersionState.mismatch
+          ? 'Please update the app before creating a new account.'
+          : 'Unable to verify the consent version. Please try again later.';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(gradient: kJournalGradient),
+        decoration: BoxDecoration(gradient: getJournalGradient(context)),
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -77,22 +102,17 @@ class _SignInScreenState extends State<SignInScreen> {
                     height: 62,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.7),
+                      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
                     ),
-                    child: const Icon(Icons.mic_none_rounded,
+                    child: Icon(Icons.mic_none_rounded,
                         size: 27, color: AppColors.greenDeep),
                   ),
-                  const SizedBox(height: 22),
-                  const Text('Nhật ký giọng nói',
-                      style: TextStyle(fontSize: 21)),
-                  const SizedBox(height: 6),
-                  Text(
-                    _isRegistering
-                        ? 'Tạo tài khoản để bắt đầu'
-                        : 'Chào bạn quay lại',
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.textSecondary),
-                  ),
+                  SizedBox(height: 22),
+                  Text('Voice Journal', style: TextStyle(fontSize: 21)),
+                  SizedBox(height: 6),
+                  Text('Welcome back',
+                      style: TextStyle(
+                          fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 30),
                   _field(
                     controller: _email,
@@ -102,7 +122,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 10),
                   _field(
                     controller: _password,
-                    hint: 'Mật khẩu',
+                    hint: 'Password',
                     obscure: true,
                   ),
                   if (_error != null) ...[
@@ -113,8 +133,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           horizontal: 14, vertical: 11),
                       decoration: BoxDecoration(
                         color: AppColors.amberTint,
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.card),
+                        borderRadius: BorderRadius.circular(AppRadius.card),
                       ),
                       child: Text(
                         _error!,
@@ -133,38 +152,28 @@ class _SignInScreenState extends State<SignInScreen> {
                         backgroundColor: AppColors.greenDeep,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.pill),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                         elevation: 0,
                       ),
                       child: _isBusy
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
+                                  strokeWidth: 2, color: Theme.of(context).colorScheme.surface),
                             )
-                          : Text(
-                              _isRegistering ? 'Tạo tài khoản' : 'Đăng nhập',
-                              style: const TextStyle(fontSize: 15),
-                            ),
+                          : const Text('Sign in',
+                              style: TextStyle(fontSize: 15)),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   TextButton(
-                    onPressed: _isBusy
-                        ? null
-                        : () => setState(() {
-                              _isRegistering = !_isRegistering;
-                              _error = null;
-                            }),
+                    onPressed: _isBusy ? null : _openRegister,
                     child: Text(
-                      _isRegistering
-                          ? 'Mình đã có tài khoản'
-                          : 'Mình chưa có tài khoản',
-                      style: const TextStyle(
-                          fontSize: 13, color: AppColors.textSecondary),
+                      'Create a new account',
+                      style: TextStyle(
+                          fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
                 ],
@@ -190,9 +199,9 @@ class _SignInScreenState extends State<SignInScreen> {
       enableSuggestions: !obscure,
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 14),
+        hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7), fontSize: 14),
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.7),
+        fillColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
         border: OutlineInputBorder(

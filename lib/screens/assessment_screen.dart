@@ -10,18 +10,16 @@ import '../services/upload_queue.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recording_visuals.dart';
 
-/// Màn đánh giá chuyên sâu.
-///
-/// Khác màn nhật ký một cách có chủ đích:
-///  - Bảng màu mát (xanh dương), nền xám, card trắng viền rõ.
-///  - Góc bo vuông vắn hơn, không có vòng thở → cảm giác có cấu trúc.
-///  - Thanh tiến trình chia 4 vạch rời: thấy rõ còn mấy câu.
-///  - Câu hỏi nằm trong card riêng, luôn hiện kể cả trong lúc ghi.
-///  - Tự lưu draft sau **mỗi câu** — thoát giữa chừng không mất gì.
+/// Deep assessment screen.
+/// Intentionally distinct from the daily journal:
+/// - cool blue palette, neutral background, clear cards with edges.
+/// - progress bar splits the session into four clear steps.
+/// - the question stays visible while recording.
+/// - draft data is auto-saved after each answer to prevent losing progress.
 class AssessmentScreen extends StatefulWidget {
   const AssessmentScreen({super.key, this.resumeSession});
 
-  /// Phiên đang dở, nếu người dùng chọn "Tiếp tục".
+  /// Active draft, if the user chooses to resume a session.
   final AssessmentSession? resumeSession;
 
   @override
@@ -40,6 +38,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   Duration _elapsed = Duration.zero;
   bool _isRecording = false;
   bool _isBusy = false;
+  bool _isStarting = false;
   String? _errorMessage;
 
   @override
@@ -67,16 +66,26 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   AssessmentQuestion get _question => AssessmentQuestion.all[_currentIndex];
 
   Future<void> _startRecording() async {
-    setState(() => _errorMessage = null);
+    if (_isStarting) return;
+    setState(() {
+      _isStarting = true;
+      _errorMessage = null;
+    });
 
     try {
       await _recorder.start(prefix: 'assess_q$_currentIndex');
     } on RecorderPermissionDenied {
-      setState(() =>
-          _errorMessage = 'Mình cần quyền dùng micro để ghi câu trả lời.');
+      setState(() {
+        _isStarting = false;
+        _errorMessage = 'I need microphone access to record your answer.';
+      });
       return;
-    } catch (_) {
-      setState(() => _errorMessage = 'Chưa bắt đầu ghi được, bạn thử lại nhé.');
+    } catch (e, stack) {
+      print('Recording start error: $e\n$stack');
+      setState(() {
+        _isStarting = false;
+        _errorMessage = 'Recording could not start. Please try again.';
+      });
       return;
     }
 
@@ -94,6 +103,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     });
 
     setState(() {
+      _isStarting = false;
       _isRecording = true;
       _elapsed = Duration.zero;
       _levels.clear();
@@ -129,11 +139,8 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
     _session = _session.copyWith(answers: [..._session.answers, answer]);
 
-    // Lưu draft ngay sau mỗi câu, không đợi đến cuối phiên.
     await _storage.saveDraft(_session);
 
-    // Tải từng câu lên ngay khi trả lời xong, không gom đến cuối phiên:
-    // người dùng có thể bỏ dở, và những câu đã trả lời vẫn là dữ liệu hợp lệ.
     await UploadQueue.instance.enqueue(
       UploadJob(
         id: '${_session.id}_q${answer.questionIndex}',
@@ -176,23 +183,23 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         backgroundColor: AppColors.coolSurface,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.structuredCard)),
-        title: const Text('Tạm dừng ở đây?', style: TextStyle(fontSize: 17)),
+        title: const Text('Pause here?', style: TextStyle(fontSize: 17)),
         content: Text(
           _session.answeredCount == 0
-              ? 'Bạn chưa trả lời câu nào. Lúc khác quay lại cũng được.'
-              : 'Đã lưu ${_session.answeredCount} câu bạn trả lời. '
-                  'Lần sau mở lại bạn có thể đi tiếp từ chỗ đang dở.',
+              ? 'You have not answered any questions yet. You can come back later.'
+              : 'Your ${_session.answeredCount} recorded answers have been saved. '
+                  'When you return, you can continue from where you left off.',
           style: const TextStyle(
               fontSize: 13, color: AppColors.coolTextSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Nói tiếp'),
+            child: const Text('Keep going'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Tạm dừng'),
+            child: const Text('Pause'),
           ),
         ],
       ),
@@ -209,9 +216,9 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       backgroundColor: Colors.transparent,
       isDismissible: false,
       builder: (context) => Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        padding: EdgeInsets.fromLTRB(24, 20, 24, 32),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Column(
@@ -228,11 +235,11 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   color: AppColors.blueDeep, size: 26),
             ),
             const SizedBox(height: 16),
-            const Text('Xong rồi, cảm ơn bạn',
+            const Text('All done, thank you',
                 style: TextStyle(fontSize: 17)),
             const SizedBox(height: 8),
             const Text(
-              'Bốn câu trả lời đã được lưu. Bạn không cần làm gì thêm.',
+              'All four answers have been saved. You do not need to do anything else.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 13, color: AppColors.coolTextSecondary),
@@ -251,7 +258,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   ),
                   elevation: 0,
                 ),
-                child: const Text('Đóng'),
+                child: const Text('Close'),
               ),
             ),
           ],
@@ -355,7 +362,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                         fontWeight: FontWeight.w500)),
               ),
               const SizedBox(width: 7),
-              Text('trong ${AssessmentQuestion.total} câu',
+              Text('of ${AssessmentQuestion.total} questions',
                   style: const TextStyle(
                       fontSize: 11, color: AppColors.coolTextSecondary)),
             ],
@@ -400,7 +407,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               barWidth: 3,
             ),
             const SizedBox(height: 12),
-            Text('Đang ghi · ${formatDuration(_elapsed)}',
+            Text('Recording · ${formatDuration(_elapsed)}',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.coolTextSecondary)),
           ] else ...[
@@ -415,7 +422,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   size: 23, color: AppColors.blueDeep),
             ),
             const SizedBox(height: 10),
-            const Text('Chạm để trả lời',
+            const Text('Tap to answer',
                 style: TextStyle(
                     fontSize: 12, color: AppColors.coolTextSecondary)),
           ],
@@ -460,16 +467,16 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           elevation: 0,
         ),
         child: _isBusy
-            ? const SizedBox(
+            ? SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2, color: Theme.of(context).colorScheme.surface),
               )
             : Text(
                 _isRecording
-                    ? (isLast ? 'Hoàn thành' : 'Xong câu này')
-                    : 'Bắt đầu trả lời',
+                    ? (isLast ? 'Complete' : 'Done with this question')
+                    : 'Start answering',
                 style: const TextStyle(fontSize: 14),
               ),
       ),
@@ -483,7 +490,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         const Icon(Icons.save_outlined,
             size: 13, color: AppColors.coolTextMuted),
         const SizedBox(width: 5),
-        const Text('Tự lưu — thoát lúc nào cũng được',
+        const Text('Auto-saved — you can leave anytime',
             style: TextStyle(fontSize: 11, color: AppColors.coolTextMuted)),
       ],
     );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// ---------------------------------------------------------------------------
-/// Nhật ký hằng ngày
+/// Daily journal
 /// ---------------------------------------------------------------------------
 
 class JournalEntry {
@@ -10,11 +10,11 @@ class JournalEntry {
   final String audioPath;
   final Duration duration;
 
-  /// Nhãn cảm xúc do CHÍNH người dùng tự gắn (self-report).
-  /// Đây không phải điểm số của mô hình — bệnh nhân không bao giờ thấy điểm.
+  /// User-defined mood tag (self-report only).
+  /// This is not a model score; patients never see a score.
   final MoodTag? selfTag;
 
-  /// Đã gửi lên backend chưa (khe cắm model WP2 ↔ WP3).
+  /// Whether this entry has been uploaded to the backend.
   final bool uploaded;
 
   const JournalEntry({
@@ -37,9 +37,6 @@ class JournalEntry {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        // Lưu timestamp đầy đủ, KHÔNG làm tròn theo ngày/tuần.
-        // Khoảng cách thực tế giữa các lần ghi là dữ liệu cần cho phân tích
-        // độ ổn định theo thời gian (test–retest) về sau.
         'recorded_at': recordedAt.toIso8601String(),
         'audio_path': audioPath,
         'duration_ms': duration.inMilliseconds,
@@ -57,8 +54,7 @@ class JournalEntry {
       );
 }
 
-/// Nhãn cảm xúc tự khai. Danh sách cố định (không nhập tự do) để dễ mã hoá
-/// thành biến phân loại khi đối chiếu với đầu ra của mô hình.
+/// User-defined mood tags.
 class MoodTag {
   final String id;
   final String label;
@@ -66,12 +62,12 @@ class MoodTag {
 
   const MoodTag._(this.id, this.label, this.icon);
 
-  static const calm = MoodTag._('calm', 'Bình thản', Icons.spa_outlined);
-  static const glad = MoodTag._('glad', 'Dễ chịu', Icons.wb_sunny_outlined);
-  static const tired = MoodTag._('tired', 'Mệt', Icons.battery_2_bar_outlined);
-  static const heavy = MoodTag._('heavy', 'Nặng nề', Icons.cloud_outlined);
+  static const calm = MoodTag._('calm', 'Calm', Icons.spa_outlined);
+  static const glad = MoodTag._('glad', 'Good', Icons.wb_sunny_outlined);
+  static const tired = MoodTag._('tired', 'Tired', Icons.battery_2_bar_outlined);
+  static const heavy = MoodTag._('heavy', 'Heavy', Icons.cloud_outlined);
   static const restless =
-      MoodTag._('restless', 'Bồn chồn', Icons.waves_outlined);
+      MoodTag._('restless', 'Restless', Icons.waves_outlined);
 
   static const all = <MoodTag>[calm, glad, tired, heavy, restless];
 
@@ -84,21 +80,18 @@ class MoodTag {
   }
 }
 
-/// Câu gợi ý đổi mỗi ngày — phần "nổi bật" của màn nhật ký.
-/// Câu hỏi cố ý để mở và trung tính: không hỏi trực tiếp về triệu chứng,
-/// tránh dẫn dắt câu trả lời và tránh cảm giác đang bị khám bệnh.
+/// Prompt shown each day to spark reflection.
 class DailyPrompt {
   static const _prompts = <String>[
-    'Có điều gì nhỏ hôm nay khiến bạn dừng lại một chút?',
-    'Hôm nay bạn đã đi qua những đâu, gặp những ai?',
-    'Nếu kể lại hôm nay cho một người bạn, bạn sẽ bắt đầu từ đâu?',
-    'Có việc gì hôm nay bạn làm xong và thấy nhẹ người không?',
-    'Buổi sáng hôm nay của bạn bắt đầu như thế nào?',
-    'Có âm thanh hay hình ảnh nào hôm nay còn đọng lại trong bạn?',
-    'Hôm nay có lúc nào bạn thấy thời gian trôi nhanh không?',
+    'Is there anything small today that made you pause for a moment?',
+    'Where did you go today, and who did you spend time with?',
+    'If you were to tell today to a friend, where would you begin?',
+    'Did you finish anything today that made you feel lighter?',
+    'How did your morning begin today?',
+    'Is there any sound or image from today that still stays with you?',
+    'Did time ever feel like it moved quickly today?',
   ];
 
-  /// Chọn theo ngày để mọi lần mở app trong cùng một ngày đều thấy cùng câu.
   static String forDate(DateTime date) {
     final dayIndex = date.difference(DateTime(2020, 1, 1)).inDays;
     return _prompts[dayIndex % _prompts.length];
@@ -106,12 +99,10 @@ class DailyPrompt {
 }
 
 /// ---------------------------------------------------------------------------
-/// Đánh giá chuyên sâu
+/// Deep assessment
 /// ---------------------------------------------------------------------------
 
-/// Bộ câu hỏi mở, mỗi câu nhắm vào một ngữ cảnh gợi nhớ khác nhau.
-/// Đây KHÔNG phải thang đo lâm sàng (PHQ-9/SDS) — nội dung thang đo chuẩn
-/// phải do người có chuyên môn duyệt và có ràng buộc bản quyền riêng.
+/// Open-ended questions, each framed in a different memory context.
 class AssessmentQuestion {
   final int index;
   final String text;
@@ -126,23 +117,23 @@ class AssessmentQuestion {
   static const List<AssessmentQuestion> all = [
     AssessmentQuestion(
       index: 0,
-      text: 'Tuần vừa rồi có điều gì khiến bạn nhớ nhất?',
-      hint: 'Không cần trả lời hay — chỉ cần thật',
+      text: 'What stands out most from the past week?',
+      hint: 'No need for a perfect answer — just be honest',
     ),
     AssessmentQuestion(
       index: 1,
-      text: 'Những ngày qua bạn ngủ và nghỉ ngơi thế nào?',
-      hint: 'Cứ kể theo cách bạn nhớ',
+      text: 'How have your sleep and rest been lately?',
+      hint: 'Tell it in your own words',
     ),
     AssessmentQuestion(
       index: 2,
-      text: 'Điều gì gần đây làm bạn thấy có động lực, dù rất nhỏ?',
-      hint: 'Không có câu trả lời đúng hay sai',
+      text: 'What has recently given you even a small sense of motivation?',
+      hint: 'There is no right or wrong answer',
     ),
     AssessmentQuestion(
       index: 3,
-      text: 'Sắp tới có việc gì bạn đang mong hoặc đang lo?',
-      hint: 'Nói bao nhiêu cũng được',
+      text: 'What are you looking forward to or worrying about next?',
+      hint: 'You can say as much or as little as you want',
     ),
   ];
 
@@ -257,10 +248,10 @@ extension AudioCheckMessage on AudioCheckResult {
   String get message => switch (this) {
         AudioCheckResult.ok => '',
         AudioCheckResult.tooShort =>
-          'Bản ghi hơi ngắn. Bạn thử nói thêm một chút nhé.',
+          'The recording is a bit short. Please say a little more.',
         AudioCheckResult.tooQuiet =>
-          'Âm thanh khá nhỏ. Bạn thử lại gần micro hơn nhé.',
+          'The audio is a bit quiet. Please move closer to the microphone.',
         AudioCheckResult.noSignal =>
-          'Micro chưa thu được tiếng. Bạn kiểm tra lại giúp mình nhé.',
+          'The microphone did not pick up any sound. Please check it and try again.',
       };
 }

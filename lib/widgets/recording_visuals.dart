@@ -93,7 +93,7 @@ class _BreathingCircleState extends State<BreathingCircle>
             height: widget.size * 0.78,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.55),
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.55),
             ),
           ),
           widget.child,
@@ -222,10 +222,10 @@ class WeekStrip extends StatelessWidget {
                     : null,
               ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             Text(labels[i],
-                style: const TextStyle(
-                    fontSize: 10, color: AppColors.textMuted)),
+                style: TextStyle(
+                    fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
           ],
         );
       }),
@@ -288,7 +288,7 @@ class MonthGrid extends StatelessWidget {
                   ? AppColors.greenSoft
                   : isFuture
                       ? Colors.transparent
-                      : AppColors.surfaceMuted,
+                      : Theme.of(context).colorScheme.surfaceVariant,
               border: isFuture
                   ? Border.all(color: AppColors.border, width: 1)
                   : null,
@@ -298,7 +298,7 @@ class MonthGrid extends StatelessWidget {
               '$dayNum',
               style: TextStyle(
                 fontSize: 10,
-                color: done ? Colors.white : AppColors.textMuted,
+                color: done ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
               ),
             ),
           ),

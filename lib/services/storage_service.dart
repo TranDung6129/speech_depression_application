@@ -101,8 +101,7 @@ class StorageService {
     await prefs.remove(_kDraft);
   }
 
-  FPhụ cấp ăn + phụ cấp trách nhiệm, đóng BHXH
-uture<void> _appendSession(AssessmentSession session) async {
+  Future<void> _appendSession(AssessmentSession session) async {
     final prefs = await _p;
     final raw = prefs.getStringList(_kSessions) ?? [];
     raw.add(jsonEncode(session.toJson()));
