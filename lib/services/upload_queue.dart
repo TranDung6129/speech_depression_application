@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import 'auth_service.dart';
+import 'storage_service.dart';
 
 /// Hàng đợi tải bản ghi lên máy chủ.
 ///
@@ -24,7 +25,9 @@ class UploadQueue extends ChangeNotifier {
   UploadQueue._();
   static final UploadQueue instance = UploadQueue._();
 
-  static const _kQueue = 'upload_queue';
+  // Đổi khoá khi đổi định dạng job: job kiểu cũ (một file mỗi job, gửi tới
+  // /v1/recordings) không đọc được bằng định dạng mới.
+  static const _kQueue = 'upload_queue_v2';
 
   final List<UploadJob> _jobs = [];
   bool _isRunning = false;
@@ -123,97 +126,112 @@ class UploadQueue extends ChangeNotifier {
   }
 
   Future<bool> _attempt(UploadJob job) async {
-    final file = File(job.audioPath);
+    final files = {
+      for (final e in job.audioPaths.entries) e.key: File(e.value),
+    };
 
-    if (!await file.exists()) {
-      // File đã biến mất (người dùng xoá, hệ điều hành dọn cache).
-      // Không có gì để tải nữa — bỏ khỏi hàng đợi thay vì thử mãi.
-      debugPrint('Bỏ qua job ${job.id}: không tìm thấy file.');
-      job.attempts = AppConfig.maxUploadAttempts;
-      job.lastError = 'Không tìm thấy file âm thanh';
-      return false;
+    for (final file in files.values) {
+      if (!await file.exists()) {
+        // File đã biến mất (người dùng xoá, hệ điều hành dọn dẹp). Không có
+        // gì để tải nữa — bỏ khỏi hàng đợi thay vì thử mãi.
+        debugPrint('Bỏ qua job ${job.id}: không tìm thấy ${file.path}.');
+        job.attempts = AppConfig.maxUploadAttempts;
+        job.lastError = 'Recording file is missing';
+        return false;
+      }
     }
 
     try {
-      final uri = Uri.parse('${AppConfig.apiBaseUrl}/v1/recordings');
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}/v1/sessions');
       final request = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer ${AuthService.instance.token}'
-        ..fields['recorded_at'] = job.recordedAt.toIso8601String()
-        ..fields['kind'] = job.kind
-        ..fields['sample_rate'] = '16000'
-        ..fields['channels'] = '1';
+        ..fields['session_id'] = job.id
+        ..fields['metadata'] = job.metadataJson;
 
-      if (job.questionIndex != null) {
-        request.fields['question_index'] = '${job.questionIndex}';
+      for (final e in files.entries) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'part_${e.key.toLowerCase()}',
+          e.value.path,
+        ));
       }
-      if (job.sessionId != null) {
-        request.fields['session_id'] = job.sessionId!;
-      }
-      if (job.selfTag != null) {
-        request.fields['self_tag'] = job.selfTag!;
-      }
-
-      request.files.add(
-        await http.MultipartFile.fromPath('audio', job.audioPath),
-      );
 
       final streamed = await request.send().timeout(
-            const Duration(minutes: 2),
+            const Duration(minutes: 3),
           );
       final response = await http.Response.fromStream(streamed);
 
       if (response.statusCode == 201) {
-        final serverSha256 = _readServerSha256(response.body);
-        if (serverSha256 != null) {
-          final localSha256 = await _sha256Hex(file);
-          if (localSha256 != serverSha256) {
-            job.lastError = 'Checksum mismatch; keeping file for retry';
+        // Chỉ xoá bản cục bộ khi checksum từng phần khớp với máy chủ.
+        final serverSha = _readServerSha256(response.body);
+        for (final e in files.entries) {
+          final local = await _sha256Hex(e.value);
+          if (serverSha[e.key] != local) {
+            job.lastError = 'Checksum mismatch; keeping files for retry';
             return false;
           }
         }
+        await StorageService.instance.markUploaded(job.id);
+        await _deleteLocal(files.values);
         return true;
       }
 
       if (response.statusCode == 401) {
         // Token hết hạn. Dừng cả hàng đợi thay vì đốt hết lượt thử lại
         // của mọi job vào một lỗi mà thử lại không giải quyết được.
-        job.lastError = 'Phiên đăng nhập hết hạn';
+        job.lastError = 'Signed out';
         await AuthService.instance.signOut();
         return false;
       }
 
       if (response.statusCode >= 400 && response.statusCode < 500) {
-        // Lỗi phía client (sai sample rate, file quá lớn) — thử lại
-        // cũng cho kết quả y hệt, nên dừng luôn.
+        // Lỗi phía client (sai định dạng, file quá lớn) — thử lại cũng cho
+        // kết quả y hệt, nên dừng luôn. File vẫn giữ trên máy.
         job.attempts = AppConfig.maxUploadAttempts;
-        job.lastError = 'Máy chủ từ chối (${response.statusCode})';
+        job.lastError = 'Server rejected (${response.statusCode})';
         return false;
       }
 
-      job.lastError = 'Lỗi máy chủ (${response.statusCode})';
+      job.lastError = 'Server error (${response.statusCode})';
       return false;
     } catch (_) {
-      job.lastError = 'Không kết nối được';
+      job.lastError = 'Could not connect';
       return false;
     }
   }
 
-  static String? _readServerSha256(String body) {
+  static Map<String, String> _readServerSha256(String body) {
     try {
       final parsed = jsonDecode(body);
-      if (parsed is Map<String, dynamic>) {
-        final sha = parsed['sha256'];
-        if (sha is String && sha.isNotEmpty) return sha;
+      if (parsed is Map<String, dynamic> && parsed['files'] is List) {
+        return {
+          for (final f in parsed['files'] as List)
+            if (f is Map && f['task_part'] is String && f['sha256'] is String)
+              f['task_part'] as String: f['sha256'] as String,
+        };
       }
     } catch (_) {
-      // Ignore malformed upload responses and keep the current behaviour.
+      // Phản hồi hỏng: coi như chưa xác nhận, giữ file để thử lại.
     }
-    return null;
+    return const {};
   }
 
   static Future<String> _sha256Hex(File file) async {
     final bytes = await file.readAsBytes();
     return sha256.convert(bytes).toString();
+  }
+
+  static Future<void> _deleteLocal(Iterable<File> files) async {
+    for (final file in files) {
+      try {
+        await file.delete();
+        final dir = file.parent;
+        if (await dir.exists() && await dir.list().isEmpty) {
+          await dir.delete();
+        }
+      } catch (_) {
+        // Không xoá được thì để lại; dữ liệu đã an toàn trên máy chủ.
+      }
+    }
   }
 
   /// Thử lại thủ công những việc đã hết lượt, dùng cho nút trong phần cài đặt.
@@ -235,20 +253,19 @@ class UploadQueue extends ChangeNotifier {
   }
 }
 
+/// Một phiên chờ tải lên: ba file A, B, C và metadata mục 5.1.
 class UploadJob {
+  /// Chính là `session_id`. Gửi lại cùng id thì máy chủ trả lại phiên đã lưu,
+  /// không tạo phiên mới và không ghi đè bản thô.
   final String id;
-  final String audioPath;
-  final DateTime recordedAt;
-  final String kind; // 'journal' | 'assessment'
-  final int? questionIndex;
-  final String? sessionId;
 
-  /// Nhãn cảm xúc tự khai, gửi kèm ngay trong lần tải lên.
-  ///
-  /// Gộp vào đây thay vì gọi PATCH riêng sau đó: id cục bộ và id máy chủ là
-  /// hai thứ khác nhau, nên đồng bộ ngược sẽ cần lưu thêm bảng ánh xạ id —
-  /// máy móc thừa cho một trường duy nhất.
-  final String? selfTag;
+  /// `task_part` (A, B, C) → đường dẫn file WAV.
+  final Map<String, String> audioPaths;
+
+  /// Danh sách metadata ba phần, đã mã hoá JSON.
+  final String metadataJson;
+
+  final DateTime recordedAt;
 
   int attempts;
   DateTime? nextAttemptAt;
@@ -256,12 +273,9 @@ class UploadJob {
 
   UploadJob({
     required this.id,
-    required this.audioPath,
+    required this.audioPaths,
+    required this.metadataJson,
     required this.recordedAt,
-    required this.kind,
-    this.questionIndex,
-    this.sessionId,
-    this.selfTag,
     this.attempts = 0,
     this.nextAttemptAt,
     this.lastError,
@@ -277,12 +291,9 @@ class UploadJob {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'audio_path': audioPath,
+        'audio_paths': audioPaths,
+        'metadata_json': metadataJson,
         'recorded_at': recordedAt.toIso8601String(),
-        'kind': kind,
-        'question_index': questionIndex,
-        'session_id': sessionId,
-        'self_tag': selfTag,
         'attempts': attempts,
         'next_attempt_at': nextAttemptAt?.toIso8601String(),
         'last_error': lastError,
@@ -290,12 +301,10 @@ class UploadJob {
 
   factory UploadJob.fromJson(Map<String, dynamic> json) => UploadJob(
         id: json['id'] as String,
-        audioPath: json['audio_path'] as String,
+        audioPaths: (json['audio_paths'] as Map<String, dynamic>)
+            .map((k, v) => MapEntry(k, v as String)),
+        metadataJson: json['metadata_json'] as String,
         recordedAt: DateTime.parse(json['recorded_at'] as String),
-        kind: json['kind'] as String,
-        questionIndex: json['question_index'] as int?,
-        sessionId: json['session_id'] as String?,
-        selfTag: json['self_tag'] as String?,
         attempts: json['attempts'] as int? ?? 0,
         nextAttemptAt: json['next_attempt_at'] == null
             ? null

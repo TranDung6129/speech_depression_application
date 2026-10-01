@@ -1,139 +1,82 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
 
-/// Lưu trữ cục bộ cho bản demo.
+/// Lưu trữ cục bộ: danh sách phiên đã thu và cài đặt nhắc.
 ///
-/// Bản triển khai thật nên chuyển sang sqflite/Isar: số bản ghi tăng theo
-/// ngày, và ta cần truy vấn theo khoảng thời gian khi phân tích về sau.
+/// Bản triển khai thật nên chuyển sang sqflite/Isar: số phiên tăng theo ngày.
 class StorageService {
   StorageService._();
   static final StorageService instance = StorageService._();
 
-  static const _kEntries = 'journal_entries';
-  static const _kDraft = 'assessment_draft';
-  static const _kSessions = 'assessment_sessions';
+  static const _kSessions = 'capture_sessions';
   static const _kReminderHour = 'reminder_hour';
   static const _kReminderMinute = 'reminder_minute';
-  static const _kAssessmentIntervalDays = 'assessment_interval_days';
+  static const _kRecordingContext = 'recording_context';
+
+  // Khoá của bản app trước (nhật ký + đánh giá bốn câu), chỉ còn để dọn.
+  static const _legacyKeys = [
+    'journal_entries',
+    'assessment_draft',
+    'assessment_sessions',
+    'assessment_interval_days',
+  ];
 
   SharedPreferences? _prefs;
   Future<SharedPreferences> get _p async =>
       _prefs ??= await SharedPreferences.getInstance();
 
-  // ---- Nhật ký hằng ngày ----
+  // ---- Phiên ----
 
-  Future<List<JournalEntry>> loadEntries() async {
+  Future<List<LocalSession>> loadSessions() async {
     final prefs = await _p;
-    final raw = prefs.getStringList(_kEntries) ?? [];
-    final entries = raw
-        .map((s) => JournalEntry.fromJson(
-            jsonDecode(s) as Map<String, dynamic>))
+    final raw = prefs.getStringList(_kSessions) ?? [];
+    final sessions = raw
+        .map((s) => LocalSession.fromJson(jsonDecode(s) as Map<String, dynamic>))
         .toList();
-    entries.sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
-    return entries;
+    sessions.sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    return sessions;
   }
 
-  Future<void> saveEntry(JournalEntry entry) async {
-    final prefs = await _p;
-    final raw = prefs.getStringList(_kEntries) ?? [];
-    raw.add(jsonEncode(entry.toJson()));
-    await prefs.setStringList(_kEntries, raw);
-  }
-
-  Future<void> updateEntry(JournalEntry entry) async {
-    final prefs = await _p;
-    final entries = await loadEntries();
-    final updated = entries
-        .map((e) => e.id == entry.id ? entry : e)
-        .map((e) => jsonEncode(e.toJson()))
-        .toList();
-    await prefs.setStringList(_kEntries, updated);
-  }
-
-  /// Ngày nào đã có nhật ký — dùng vẽ lịch tháng.
-  /// Lịch chỉ hiển thị **đã ghi / chưa ghi**, không tô màu theo cảm xúc:
-  /// nhìn lại cả tháng toàn màu tối có thể khiến người dùng nản thêm.
-  Future<Set<DateTime>> recordedDays() async {
-    final entries = await loadEntries();
-    return entries
-        .map((e) => DateTime(
-            e.recordedAt.year, e.recordedAt.month, e.recordedAt.day))
-        .toSet();
-  }
-
-  // ---- Đánh giá chuyên sâu ----
-
-  Future<AssessmentSession?> loadDraft() async {
-    final prefs = await _p;
-    final raw = prefs.getString(_kDraft);
-    if (raw == null) return null;
-    return AssessmentSession.fromJson(
-        jsonDecode(raw) as Map<String, dynamic>);
-  }
-
-  Future<void> saveDraft(AssessmentSession session) async {
-    final prefs = await _p;
-    await prefs.setString(_kDraft, jsonEncode(session.toJson()));
-  }
-
-  /// Khi người dùng chọn "Bắt đầu đánh giá mới" mà đang có draft dở:
-  /// draft cũ KHÔNG bị xoá, chỉ chuyển sang trạng thái `abandoned` và
-  /// chuyển vào kho phiên. Các câu đã trả lời vẫn là mẫu giọng hợp lệ.
-  Future<void> archiveDraftAsAbandoned() async {
-    final draft = await loadDraft();
-    if (draft == null) return;
-    await _appendSession(draft.copyWith(status: SessionStatus.abandoned));
-    await clearDraft();
-  }
-
-  Future<void> completeDraft() async {
-    final draft = await loadDraft();
-    if (draft == null) return;
-    await _appendSession(draft.copyWith(status: SessionStatus.completed));
-    await clearDraft();
-  }
-
-  Future<void> clearDraft() async {
-    final prefs = await _p;
-    await prefs.remove(_kDraft);
-  }
-
-  Future<void> _appendSession(AssessmentSession session) async {
+  Future<void> saveSession(LocalSession session) async {
     final prefs = await _p;
     final raw = prefs.getStringList(_kSessions) ?? [];
     raw.add(jsonEncode(session.toJson()));
     await prefs.setStringList(_kSessions, raw);
   }
 
-  Future<List<AssessmentSession>> loadSessions() async {
+  Future<void> markUploaded(String sessionId) async {
     final prefs = await _p;
-    final raw = prefs.getStringList(_kSessions) ?? [];
-    final sessions = raw
-        .map((s) => AssessmentSession.fromJson(
-            jsonDecode(s) as Map<String, dynamic>))
-        .toList();
-    sessions.sort((a, b) => b.startedAt.compareTo(a.startedAt));
-    return sessions;
+    final sessions = await loadSessions();
+    await prefs.setStringList(
+      _kSessions,
+      sessions
+          .map((s) => s.id == sessionId ? s.copyWith(uploaded: true) : s)
+          .map((s) => jsonEncode(s.toJson()))
+          .toList(),
+    );
+  }
+
+  /// Ngày nào đã có phiên — dùng vẽ lịch. Chỉ hai trạng thái đã thu / chưa
+  /// thu, không tô màu theo bất kỳ số đo nào.
+  Future<Set<DateTime>> recordedDays() async {
+    final sessions = await loadSessions();
+    return sessions
+        .map((s) =>
+            DateTime(s.recordedAt.year, s.recordedAt.month, s.recordedAt.day))
+        .toSet();
   }
 
   // ---- Cài đặt ----
 
-  /// Tần suất đánh giá do người dùng tự chọn. Giá trị này chỉ điều khiển
-  /// lời nhắc; khoảng cách thực tế giữa các phiên phải đọc từ timestamp,
-  /// không được suy ra từ cài đặt này.
-  Future<int> assessmentIntervalDays() async {
-    final prefs = await _p;
-    return prefs.getInt(_kAssessmentIntervalDays) ?? 7;
-  }
-
-  Future<void> setAssessmentIntervalDays(int days) async {
-    final prefs = await _p;
-    await prefs.setInt(_kAssessmentIntervalDays, days);
-  }
-
+  /// Giờ nhắc hằng ngày. Lịch mặc định là một phiên mỗi ngày, cùng khung giờ
+  /// (mục 3). Khoảng cách thực tế giữa các phiên đọc từ timestamp, không suy
+  /// ra từ cài đặt này.
   Future<(int, int)> reminderTime() async {
     final prefs = await _p;
     return (
@@ -148,11 +91,36 @@ class StorageService {
     await prefs.setInt(_kReminderMinute, minute);
   }
 
-  /// Xoá toàn bộ dữ liệu — bắt buộc phải có cho phần quyền riêng tư.
+  Future<RecordingContext> recordingContext() async {
+    final prefs = await _p;
+    final name = prefs.getString(_kRecordingContext);
+    return RecordingContext.values.firstWhere(
+      (c) => c.name == name,
+      orElse: () => RecordingContext.home,
+    );
+  }
+
+  Future<void> setRecordingContext(RecordingContext context) async {
+    final prefs = await _p;
+    await prefs.setString(_kRecordingContext, context.name);
+  }
+
+  /// Xoá toàn bộ dữ liệu trên máy, kể cả file âm thanh chưa tải lên.
   Future<void> wipeAll() async {
     final prefs = await _p;
-    await prefs.remove(_kEntries);
-    await prefs.remove(_kDraft);
     await prefs.remove(_kSessions);
+    for (final key in _legacyKeys) {
+      await prefs.remove(key);
+    }
+    if (kIsWeb) return;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      for (final name in const ['sessions', 'recordings']) {
+        final folder = Directory('${dir.path}/$name');
+        if (await folder.exists()) await folder.delete(recursive: true);
+      }
+    } catch (_) {
+      // Không có thư mục tài liệu (ví dụ trong test) thì không có gì để xoá.
+    }
   }
 }

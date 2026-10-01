@@ -17,7 +17,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   int _reminderHour = 20;
   int _reminderMinute = 0;
-  int _intervalDays = 7;
 
   @override
   void initState() {
@@ -27,12 +26,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     final (h, m) = await _storage.reminderTime();
-    final days = await _storage.assessmentIntervalDays();
     if (!mounted) return;
     setState(() {
       _reminderHour = h;
       _reminderMinute = m;
-      _intervalDays = days;
     });
   }
 
@@ -50,52 +47,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
-  Future<void> _pickInterval() async {
-    final picked = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: EdgeInsets.fromLTRB(22, 16, 22, 30),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('How often should we remind you?',
-                style: TextStyle(fontSize: 16)),
-            SizedBox(height: 4),
-            Text('You can still do it whenever you want.',
-                style: TextStyle(
-                    fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 16),
-            ...[
-              (3, 'Every 3 days'),
-              (7, 'Every week'),
-              (14, 'Every 2 weeks'),
-              (0, 'No reminder — I will check in myself'),
-            ].map((opt) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(opt.$2, style: const TextStyle(fontSize: 14)),
-                  trailing: _intervalDays == opt.$1
-                      ? const Icon(Icons.check_rounded,
-                          size: 18, color: AppColors.greenDeep)
-                      : null,
-                  onTap: () => Navigator.of(context).pop(opt.$1),
-                )),
-          ],
-        ),
-      ),
-    );
-
-    if (picked == null) return;
-    await _storage.setAssessmentIntervalDays(picked);
-    if (!mounted) return;
-    setState(() => _intervalDays = picked);
-  }
-
   Future<void> _confirmWipe() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -105,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Delete all recordings?',
             style: TextStyle(fontSize: 17)),
         content: const Text(
-          'All recordings and assessments stored on this device will be deleted. This action cannot be undone.',
+          'All sessions stored on this device, including any not yet sent, will be deleted. This action cannot be undone.',
           style: TextStyle(fontSize: 13),
         ),
         actions: [
@@ -124,18 +75,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed != true) return;
     await _storage.wipeAll();
+    await UploadQueue.instance.clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('All recordings have been deleted.')),
     );
   }
-
-  String get _intervalLabel => switch (_intervalDays) {
-        3 => 'Every 3 days',
-        7 => 'Every week',
-        14 => 'Every 2 weeks',
-        _ => 'No reminder',
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -176,16 +121,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _sectionCard([
             _row(
               icon: Icons.notifications_none_rounded,
-              title: 'Journal reminder',
+              title: 'Daily session reminder',
               subtitle: 'Daily · $time',
               onTap: _pickReminder,
-            ),
-            _divider(),
-            _row(
-              icon: Icons.assignment_outlined,
-              title: 'Assessment frequency',
-              subtitle: 'You choose · $_intervalLabel',
-              onTap: _pickInterval,
             ),
             _divider(),
             _row(

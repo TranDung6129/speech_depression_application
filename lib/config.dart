@@ -13,6 +13,10 @@ class AppConfig {
 
   static const String consentVersion = 'v1';
 
+  /// Ghi vào `app_version` trong metadata (mục 5.1). Giữ khớp với
+  /// `version` trong pubspec.yaml.
+  static const String appVersion = '0.2.0+2';
+
   /// Địa chỉ API backend.
   /// Mặc định `http://127.0.0.1:8000` hoạt động trực tiếp khi:
   /// - Chạy trên Linux Desktop / Web / iOS simulator
